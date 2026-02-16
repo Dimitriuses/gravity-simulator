@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gravity Simulator</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      z-index: 1000;
+      pointer-events: auto;
+    }
+    #controls h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    #controls label {
+      display: block;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    #controls input[type="range"] {
+      width: 150px;
+    }
+    #controls button {
+      margin-top: 10px;
+      padding: 6px 12px;
+      cursor: pointer;
+      border: none;
+      background: #4CAF50;
+      color: white;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    #controls button:hover {
+      background: #45a049;
+    }
+    #info {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      z-index: 1000;
+      pointer-events: auto;
+      max-width: 250px;
+    }
+    .particle-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px;
+      margin: 2px 0;
+      background: rgba(200, 220, 255, 0.3);
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .particle-item button {
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      border: none;
+      background: #ff6b6b;
+      color: white;
+      border-radius: 3px;
+    }
+    .particle-item button:hover {
+      background: #ff5252;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h3>Controls</h3>
+    <label>
+      Mass: <span id="massValue">200</span>
+      <input type="range" id="massSlider" min="100" max="5000" value="200" step="50">
+    </label>
+    <label>
+      Vector Range: <span id="rangeValue">150</span>px
+      <input type="range" id="rangeSlider" min="100" max="500" value="150" step="50">
+    </label>
+    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+      <strong style="font-size: 13px;">Render Settings</strong>
+    </div>
+    <label>
+      Object Size: <span id="objectSizeValue">1.0</span>x
+      <input type="range" id="objectSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
+    </label>
+    <label>
+      Arrow Size: <span id="arrowSizeValue">1.0</span>x
+      <input type="range" id="arrowSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
+    </label>
+    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+      <strong style="font-size: 13px;">Camera</strong>
+    </div>
+    <div style="font-size: 11px; margin: 5px 0; color: #666;">
+      Zoom: <span id="zoomValue">100</span>%<br>
+      <span style="font-size: 10px;">Scroll wheel to zoom<br>Middle-click or Ctrl+drag to pan</span>
+    </div>
+    <button id="resetCameraBtn" style="width: 100%; margin-top: 5px;">Reset Camera</button>
+    <label>
+      <input type="checkbox" id="showVectors" checked> Show Vector Field
+    </label>
+    <label>
+      <input type="checkbox" id="showParticleVectors" checked> Show Particle Vectors
+    </label>
+    <label>
+      <input type="checkbox" id="showTrails" checked> Show Trails
+    </label>
+    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+      <label style="font-size: 11px;">
+        Grid Mode:
+        <select id="gridModeSelect" style="margin-left: 5px; padding: 2px;">
+          <option value="adaptive">Adaptive (Dense near objects)</option>
+          <option value="uniform">Uniform (Regular grid)</option>
+        </select>
+      </label>
+    </div>
+    <button id="clearBtn">Clear All</button>
+    <button id="pauseBtn">Pause</button>
+  </div>
+  
+  <div id="info">
+    <strong>Click</strong> to add objects<br>
+    <strong>Drag</strong> to add velocity<br>
+    Objects: <span id="objectCount">0</span>
+    <div id="particleList" style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
+      <!-- Particle list will be populated here -->
+    </div>
+  </div>
+  
+  <div id="legend" style="position: absolute; bottom: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); padding: 10px; border-radius: 8px; font-size: 11px; z-index: 1000; pointer-events: auto;">
+    <strong>Vector Field:</strong><br>
+    <div style="margin-top: 5px;">
+      <span style="color: #ff0000; font-weight: bold;">●</span> Strong Force<br>
+      <span style="color: #ffff00; font-weight: bold;">●</span> Medium-High<br>
+      <span style="color: #00ff00; font-weight: bold;">●</span> Medium<br>
+      <span style="color: #00ffff; font-weight: bold;">●</span> Medium-Low<br>
+      <span style="color: #0000ff; font-weight: bold;">●</span> Weak Force
+    </div>
+    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ccc;">
+      <strong>Particle Vectors:</strong><br>
+      <span style="color: #ff8800; font-weight: bold;">→</span> Gravitational Force<br>
+      <span style="color: #00ffff; font-weight: bold;">→</span> Velocity (Movement)
+    </div>
+  </div>
+  
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
