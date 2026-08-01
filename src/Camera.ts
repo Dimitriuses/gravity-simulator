@@ -1,4 +1,14 @@
 import p5 from 'p5';
+import { ViewBounds } from './VectorField';
+
+/**
+ * One mouse-wheel notch is |deltaY| ≈ 100 and should zoom by 10%, so the rate
+ * is ln(1.1) / 100 per unit of wheel delta.
+ */
+const ZOOM_PER_WHEEL_UNIT = Math.log(1.1) / 100;
+
+/** Some devices report deltas in the thousands; one event should not cross the whole range. */
+const MAX_WHEEL_DELTA = 240;
 
 /**
  * Camera class for handling zoom and pan transformations
@@ -65,6 +75,27 @@ export class Camera {
   }
 
   /**
+   * The rectangle of world space currently on screen.
+   *
+   * The vector field is built from this, so panning and zooming change what
+   * gets sampled — without it the field stays pinned to a fixed box around the
+   * world origin and visibly runs out as soon as the camera moves.
+   *
+   * `margin` extends the rectangle in screen pixels so arrows just off the edge
+   * are still sampled and do not pop in at the border.
+   */
+  getViewBounds(margin: number = 0): ViewBounds {
+    const topLeft = this.screenToWorld(-margin, -margin);
+    const bottomRight = this.screenToWorld(this.p.width + margin, this.p.height + margin);
+    return {
+      minX: topLeft.x,
+      minY: topLeft.y,
+      maxX: bottomRight.x,
+      maxY: bottomRight.y,
+    };
+  }
+
+  /**
    * Start panning
    */
   startPan(mouseX: number, mouseY: number): void {
@@ -103,24 +134,23 @@ export class Camera {
   }
 
   /**
-   * Zoom in or out centered on a point (usually mouse position)
+   * Zoom in or out about a screen point, usually the mouse.
+   *
+   * The step is exponential in `delta` rather than a fixed ±10%, so one notch
+   * of a mouse wheel (|deltaY| ≈ 100) gives the familiar 10% while a trackpad's
+   * stream of small deltas scrolls smoothly instead of stepping. `delta` is
+   * clamped first: some devices emit deltas in the thousands, which would
+   * otherwise cross the whole zoom range in a single event.
    */
   zoomAt(screenX: number, screenY: number, delta: number): void {
-    // Get world position before zoom
     const worldBefore = this.screenToWorld(screenX, screenY);
-    
-    // Apply zoom
-    const zoomFactor = delta > 0 ? 1.1 : 0.9;
-    this.zoom *= zoomFactor;
-    
-    // Clamp zoom
+
+    const clamped = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, delta));
+    this.zoom *= Math.exp(clamped * ZOOM_PER_WHEEL_UNIT);
     this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom));
-    
-    // Get world position after zoom (if we don't adjust camera)
+
+    // Shift the camera so the world point under the cursor stays under it.
     const worldAfter = this.screenToWorld(screenX, screenY);
-    
-    // Adjust camera position to keep the same world point under the cursor
-    // We want worldAfter to equal worldBefore, so we need to shift camera
     this.x -= worldAfter.x - worldBefore.x;
     this.y -= worldAfter.y - worldBefore.y;
   }

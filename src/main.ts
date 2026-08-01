@@ -5,109 +5,121 @@ import { Particle } from './Particle';
 import { Camera } from './Camera';
 
 /**
+ * Sample the field slightly beyond the viewport so arrows do not pop in at the
+ * edges while panning.
+ */
+const FIELD_MARGIN_PX = 60;
+
+/** Drag pixels to world velocity. A full-screen drag is a fast shot. */
+const DRAG_TO_VELOCITY = 0.05;
+
+/** Typed lookup — every one of these ids exists in index.html. */
+function el<T extends HTMLElement>(id: string): T {
+  const found = document.getElementById(id);
+  if (!found) throw new Error(`Missing UI element #${id}`);
+  return found as T;
+}
+
+/**
  * Main sketch for the gravity simulator
  */
 const sketch = (p: p5) => {
   let engine: PhysicsEngine;
   let renderer: Renderer;
   let camera: Camera;
-  
+
   // UI state
   let isPaused = false;
   let isDrawingVelocity = false;
   let velocityStart: { x: number; y: number } | null = null;
-  let selectedMass = 50;
-  let isPanningWithMiddleMouse = false;
+  let selectedMass = 200;
+  let isPanning = false;
 
-  // HTML elements
-  let massSlider: p5.Element;
-  let massValue: HTMLElement;
-  let rangeSlider: p5.Element;
-  let rangeValue: HTMLElement;
-  let objectSizeSlider: p5.Element;
-  let objectSizeValue: HTMLElement;
-  let arrowSizeSlider: p5.Element;
-  let arrowSizeValue: HTMLElement;
-  let zoomValue: HTMLElement;
-  let resetCameraBtn: HTMLElement;
-  let gridModeSelect: p5.Element;
-  let showVectorsCheckbox: p5.Element;
-  let showParticleVectorsCheckbox: p5.Element;
-  let showTrailsCheckbox: p5.Element;
-  let clearBtn: HTMLElement;
-  let pauseBtn: HTMLElement;
-  let objectCount: HTMLElement;
-  let particleList: HTMLElement;
+  // HTML controls
+  const massSlider = el<HTMLInputElement>('massSlider');
+  const massValue = el('massValue');
+  const rangeSlider = el<HTMLInputElement>('rangeSlider');
+  const rangeValue = el('rangeValue');
+  const objectSizeSlider = el<HTMLInputElement>('objectSizeSlider');
+  const objectSizeValue = el('objectSizeValue');
+  const arrowSizeSlider = el<HTMLInputElement>('arrowSizeSlider');
+  const arrowSizeValue = el('arrowSizeValue');
+  const zoomValue = el('zoomValue');
+  const resetCameraBtn = el('resetCameraBtn');
+  const gridModeSelect = el<HTMLSelectElement>('gridModeSelect');
+  const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
+  const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
+  const showTrailsCheckbox = el<HTMLInputElement>('showTrails');
+  const clearBtn = el('clearBtn');
+  const pauseBtn = el('pauseBtn');
+  const objectCount = el('objectCount');
+  const particleList = el('particleList');
 
   p.setup = () => {
     const canvas = p.createCanvas(p.windowWidth, p.windowHeight);
     canvas.parent(document.body);
-    
-    p.colorMode(p.HSB, 360, 100, 100, 100);
 
-    // Initialize physics engine, renderer, and camera
-    engine = new PhysicsEngine(p.width, p.height);
+    // p5's default RGB colour mode is left in place. The renderer switches to
+    // HSB only for the vector-field pass, where hue encodes force strength.
+
+    engine = new PhysicsEngine(30);
     renderer = new Renderer(p, engine);
     camera = new Camera(p);
-    
-    // Camera starts at (0,0) which puts world origin at screen center
-    // This is the default, just being explicit
 
-    // Setup UI controls
     setupUI();
+    // Read the simulation's starting values out of the markup rather than
+    // duplicating them here, so the controls and the simulation cannot disagree.
+    syncStateFromControls();
 
-    // Add initial particles at world center (0, 0) with some offset
+    // Two equal bodies in a mutual orbit, straddling the world origin.
     engine.addParticle(new Particle(-200, 0, 100, 0, 0.5));
     engine.addParticle(new Particle(200, 0, 100, 0, -0.5));
-    
+
     updateObjectCount();
     updateZoomDisplay();
   };
 
   p.draw = () => {
-    if (!isPaused) {
-      engine.update();
-    }
+    const view = camera.getViewBounds(FIELD_MARGIN_PX);
 
-    // Apply camera transformation for world objects
+    if (isPaused) {
+      // Keep the force arrows truthful while frozen: recompute them, but do
+      // not integrate. Adding or deleting a body while paused still updates
+      // every arrow.
+      engine.computeForces();
+    } else {
+      engine.step();
+    }
+    engine.updateField(view);
+
     camera.apply();
     renderer.draw();
 
-    // Draw velocity preview arrow in world space
     if (isDrawingVelocity && velocityStart) {
       const worldEnd = camera.screenToWorld(p.mouseX, p.mouseY);
-      renderer.drawVelocityPreview(
-        velocityStart.x,
-        velocityStart.y,
-        worldEnd.x,
-        worldEnd.y
-      );
+      renderer.drawVelocityPreview(velocityStart.x, velocityStart.y, worldEnd.x, worldEnd.y);
     }
-    
+
     camera.reset();
   };
 
   p.mousePressed = () => {
-    // Check if click is outside canvas or on UI elements
     if (p.mouseX < 0 || p.mouseX > p.width || p.mouseY < 0 || p.mouseY > p.height) {
       return;
     }
-
-    // Check if mouse is over any UI element
     if (isMouseOverUI()) {
       return;
     }
 
-    // Middle mouse button (button 1) or Ctrl+Click for panning
+    // Middle-drag or Ctrl+drag pans
     if (p.mouseButton === p.CENTER || (p.mouseButton === p.LEFT && p.keyIsDown(p.CONTROL))) {
       camera.startPan(p.mouseX, p.mouseY);
-      isPanningWithMiddleMouse = true;
+      isPanning = true;
       return;
     }
 
-    // Left mouse button for adding particles
+    // Left-drag places a body and aims its initial velocity
     if (p.mouseButton === p.LEFT) {
-      // Convert screen coordinates to world coordinates
       const worldPos = camera.screenToWorld(p.mouseX, p.mouseY);
       velocityStart = { x: worldPos.x, y: worldPos.y };
       isDrawingVelocity = true;
@@ -115,230 +127,185 @@ const sketch = (p: p5) => {
   };
 
   p.mouseDragged = () => {
-    // Update panning if middle mouse is down
-    if (isPanningWithMiddleMouse) {
+    if (isPanning) {
       camera.updatePan(p.mouseX, p.mouseY);
-      return;
     }
   };
 
   p.mouseReleased = () => {
-    // End panning
-    if (isPanningWithMiddleMouse) {
+    if (isPanning) {
       camera.endPan();
-      isPanningWithMiddleMouse = false;
+      isPanning = false;
       return;
     }
 
     if (!isDrawingVelocity || !velocityStart) return;
 
-    // Check if mouse is over UI (don't create particle if dragging over UI)
+    // Dragging onto a panel cancels rather than dropping a body underneath it
     if (isMouseOverUI()) {
       isDrawingVelocity = false;
       velocityStart = null;
       return;
     }
 
-    // Convert screen coordinates to world coordinates
     const worldEnd = camera.screenToWorld(p.mouseX, p.mouseY);
-    
-    // Calculate velocity from drag
-    const vx = (worldEnd.x - velocityStart.x) * 0.05;
-    const vy = (worldEnd.y - velocityStart.y) * 0.05;
-
-    // Add particle with velocity
-    const particle = new Particle(
-      velocityStart.x,
-      velocityStart.y,
-      selectedMass,
-      vx,
-      vy
+    engine.addParticle(
+      new Particle(
+        velocityStart.x,
+        velocityStart.y,
+        selectedMass,
+        (worldEnd.x - velocityStart.x) * DRAG_TO_VELOCITY,
+        (worldEnd.y - velocityStart.y) * DRAG_TO_VELOCITY
+      )
     );
-    engine.addParticle(particle);
 
-    // Reset drawing state
     isDrawingVelocity = false;
     velocityStart = null;
-    
+
     updateObjectCount();
   };
 
   p.mouseWheel = (event: WheelEvent) => {
-    // Prevent default scrolling
     event.preventDefault();
-    
-    // Don't zoom if mouse is over UI
-    if (isMouseOverUI()) {
-      return;
-    }
-    
-    // Zoom at mouse position
-    camera.zoomAt(p.mouseX, p.mouseY, -event.delta);
+    if (isMouseOverUI()) return;
+
+    // Scrolling up (negative deltaY) zooms in.
+    camera.zoomAt(p.mouseX, p.mouseY, -event.deltaY);
     updateZoomDisplay();
-    
     return false;
   };
 
   p.windowResized = () => {
     p.resizeCanvas(p.windowWidth, p.windowHeight);
-    engine.resize(p.width, p.height);
   };
 
   /**
-   * Check if mouse is over any UI element
+   * Is the pointer over one of the floating panels? Those swallow the click so
+   * it does not also place a particle on the canvas beneath.
    */
   function isMouseOverUI(): boolean {
-    // Get all UI container elements
-    const controls = document.getElementById('controls');
-    const info = document.getElementById('info');
-    const legend = document.getElementById('legend');
-
-    return isMouseOverElement(controls) || 
-           isMouseOverElement(info) || 
-           isMouseOverElement(legend);
+    return ['controls', 'info', 'legend'].some((id) => {
+      const element = document.getElementById(id);
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      return (
+        p.mouseX >= rect.left &&
+        p.mouseX <= rect.right &&
+        p.mouseY >= rect.top &&
+        p.mouseY <= rect.bottom
+      );
+    });
   }
 
   /**
-   * Check if mouse is over a specific element
+   * Push every control's current value into the simulation.
+   *
+   * Called once at startup. Without it the sliders' markup values and the
+   * objects' defaults drift apart — the mass slider read 200 while new bodies
+   * were created with mass 50, and the range slider read 150 while the field
+   * used 300.
    */
-  function isMouseOverElement(element: HTMLElement | null): boolean {
-    if (!element) return false;
+  function syncStateFromControls(): void {
+    selectedMass = parseInt(massSlider.value, 10);
+    massValue.textContent = massSlider.value;
 
-    const rect = element.getBoundingClientRect();
-    return p.mouseX >= rect.left && 
-           p.mouseX <= rect.right && 
-           p.mouseY >= rect.top && 
-           p.mouseY <= rect.bottom;
+    engine.vectorField.maxInfluenceRadius = parseInt(rangeSlider.value, 10);
+    rangeValue.textContent = rangeSlider.value;
+
+    renderer.particleSizeMultiplier = parseFloat(objectSizeSlider.value);
+    objectSizeValue.textContent = renderer.particleSizeMultiplier.toFixed(1);
+
+    renderer.arrowSizeMultiplier = parseFloat(arrowSizeSlider.value);
+    arrowSizeValue.textContent = renderer.arrowSizeMultiplier.toFixed(1);
+
+    engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
+    renderer.showVectorField = showVectorsCheckbox.checked;
+    renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
+    renderer.showTrails = showTrailsCheckbox.checked;
   }
 
   /**
-   * Setup UI controls and event handlers
+   * Wire up the controls.
+   *
+   * Native DOM listeners rather than p5's `select().input()` wrappers: p5's DOM
+   * helpers are typed onto the p5 instance rather than onto p5.Element, so the
+   * wrapper form does not typecheck, and half these controls were plain
+   * elements already.
    */
-  function setupUI() {
-    // Mass slider
-    massSlider = p.select('#massSlider') as p5.Element;
-    massValue = document.getElementById('massValue')!;
-    massSlider.input(() => {
-      selectedMass = parseInt((massSlider.elt as HTMLInputElement).value);
+  function setupUI(): void {
+    massSlider.addEventListener('input', () => {
+      selectedMass = parseInt(massSlider.value, 10);
       massValue.textContent = selectedMass.toString();
     });
 
-    // Vector range slider
-    rangeSlider = p.select('#rangeSlider') as p5.Element;
-    rangeValue = document.getElementById('rangeValue')!;
-    rangeSlider.input(() => {
-      const range = parseInt((rangeSlider.elt as HTMLInputElement).value);
+    rangeSlider.addEventListener('input', () => {
+      const range = parseInt(rangeSlider.value, 10);
       rangeValue.textContent = range.toString();
       engine.vectorField.maxInfluenceRadius = range;
     });
 
-    // Object size slider
-    objectSizeSlider = p.select('#objectSizeSlider') as p5.Element;
-    objectSizeValue = document.getElementById('objectSizeValue')!;
-    objectSizeSlider.input(() => {
-      const size = parseFloat((objectSizeSlider.elt as HTMLInputElement).value);
+    objectSizeSlider.addEventListener('input', () => {
+      const size = parseFloat(objectSizeSlider.value);
       objectSizeValue.textContent = size.toFixed(1);
       renderer.particleSizeMultiplier = size;
     });
 
-    // Arrow size slider
-    arrowSizeSlider = p.select('#arrowSizeSlider') as p5.Element;
-    arrowSizeValue = document.getElementById('arrowSizeValue')!;
-    arrowSizeSlider.input(() => {
-      const size = parseFloat((arrowSizeSlider.elt as HTMLInputElement).value);
+    arrowSizeSlider.addEventListener('input', () => {
+      const size = parseFloat(arrowSizeSlider.value);
       arrowSizeValue.textContent = size.toFixed(1);
       renderer.arrowSizeMultiplier = size;
     });
 
-    // Show vectors checkbox
-    showVectorsCheckbox = p.select('#showVectors') as p5.Element;
-    showVectorsCheckbox.changed(() => {
-      renderer.showVectorField = (showVectorsCheckbox.elt as HTMLInputElement).checked;
+    showVectorsCheckbox.addEventListener('change', () => {
+      renderer.showVectorField = showVectorsCheckbox.checked;
     });
 
-    // Grid mode select
-    gridModeSelect = p.select('#gridModeSelect') as p5.Element;
-    gridModeSelect.changed(() => {
-      const mode = (gridModeSelect.elt as HTMLSelectElement).value as 'uniform' | 'adaptive';
-      engine.vectorField.gridMode = mode;
-    });
-    
-    // Prevent mouse events on select from creating particles
-    (gridModeSelect.elt as HTMLSelectElement).addEventListener('mousedown', (e) => {
-      e.stopPropagation();
-    });
-    (gridModeSelect.elt as HTMLSelectElement).addEventListener('click', (e) => {
-      e.stopPropagation();
+    showParticleVectorsCheckbox.addEventListener('change', () => {
+      renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
     });
 
-    // Show particle vectors checkbox
-    showParticleVectorsCheckbox = p.select('#showParticleVectors') as p5.Element;
-    showParticleVectorsCheckbox.changed(() => {
-      renderer.showParticleVectors = (showParticleVectorsCheckbox.elt as HTMLInputElement).checked;
+    showTrailsCheckbox.addEventListener('change', () => {
+      renderer.showTrails = showTrailsCheckbox.checked;
     });
 
-    // Show trails checkbox
-    showTrailsCheckbox = p.select('#showTrails') as p5.Element;
-    showTrailsCheckbox.changed(() => {
-      renderer.showTrails = (showTrailsCheckbox.elt as HTMLInputElement).checked;
+    gridModeSelect.addEventListener('change', () => {
+      engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
     });
 
-    // Camera reset button
-    zoomValue = document.getElementById('zoomValue')!;
-    resetCameraBtn = document.getElementById('resetCameraBtn')!;
     resetCameraBtn.addEventListener('click', () => {
-      camera.x = 0;
-      camera.y = 0;
-      camera.zoom = 1.0;
+      camera.resetCamera();
       updateZoomDisplay();
     });
 
-    // Clear button
-    clearBtn = document.getElementById('clearBtn')!;
     clearBtn.addEventListener('click', () => {
       engine.clearParticles();
       updateObjectCount();
     });
 
-    // Pause button
-    pauseBtn = document.getElementById('pauseBtn')!;
     pauseBtn.addEventListener('click', () => {
       isPaused = !isPaused;
       pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
     });
-
-    // Object count
-    objectCount = document.getElementById('objectCount')!;
-    
-    // Particle list
-    particleList = document.getElementById('particleList')!;
   }
 
-  /**
-   * Update the object count display
-   */
-  function updateObjectCount() {
+  function updateObjectCount(): void {
     objectCount.textContent = engine.particles.length.toString();
     updateParticleList();
   }
 
   /**
-   * Update the particle list with delete buttons
+   * Rebuild the per-particle list with its delete buttons.
    */
-  function updateParticleList() {
-    particleList.innerHTML = '';
-    
-    if (engine.particles.length === 0) {
-      return;
-    }
+  function updateParticleList(): void {
+    particleList.replaceChildren();
 
     engine.particles.forEach((particle, index) => {
       const item = document.createElement('div');
       item.className = 'particle-item';
-      
+
       const info = document.createElement('span');
       info.textContent = `#${index + 1} - Mass: ${Math.round(particle.mass)}`;
-      
+
       const deleteBtn = document.createElement('button');
       deleteBtn.textContent = '✕';
       deleteBtn.title = 'Delete this particle';
@@ -347,17 +314,13 @@ const sketch = (p: p5) => {
         engine.removeParticle(particle);
         updateObjectCount();
       });
-      
-      item.appendChild(info);
-      item.appendChild(deleteBtn);
-      particleList.appendChild(item);
+
+      item.append(info, deleteBtn);
+      particleList.append(item);
     });
   }
 
-  /**
-   * Update the zoom display
-   */
-  function updateZoomDisplay() {
+  function updateZoomDisplay(): void {
     zoomValue.textContent = camera.getZoomPercent().toString();
   }
 };

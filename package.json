@@ -1,22 +1,42 @@
 {
   "name": "gravity-simulator",
   "version": "1.0.0",
-  "description": "2D Gravity Simulator with Vector Field Visualization",
-  "main": "index.js",
+  "description": "2D N-body gravity simulator with an interactive gravitational vector field, in TypeScript and p5.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoketest": "node tools/smoketest.mjs",
+    "screenshots": "node tools/smoketest.mjs --shots",
+    "verify:install": "node tools/verify-install.mjs"
   },
-  "keywords": ["gravity", "physics", "simulation", "p5js"],
-  "author": "",
+  "keywords": [
+    "gravity",
+    "n-body",
+    "physics",
+    "simulation",
+    "vector-field",
+    "p5js",
+    "typescript"
+  ],
+  "author": "Dimitriuses",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dimitriuses/gravity-simulator.git"
+  },
   "dependencies": {
     "p5": "^1.9.0"
   },
   "devDependencies": {
     "@types/p5": "^1.7.6",
+    "playwright": "^1.62.1",
     "typescript": "^5.3.3",
-    "vite": "^5.0.11"
+    "vite": "^7.0.0",
+    "vitest": "^4.1.10"
   }
 }

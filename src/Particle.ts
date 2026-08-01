@@ -34,24 +34,34 @@ export class Particle {
   }
 
   /**
+   * Clear the accumulated force and acceleration.
+   *
+   * Called at the *start* of a simulation step, before any force is applied —
+   * deliberately not at the end of update(). `netForce` is what the renderer
+   * draws as the orange force arrow, and it is read after the step completes,
+   * so clearing it on the way out of update() would leave the renderer nothing
+   * but zero to draw. See tests/PhysicsEngine.test.ts.
+   */
+  resetForces(): void {
+    this.acceleration = new Vector2D(0, 0);
+    this.netForce = new Vector2D(0, 0);
+  }
+
+  /**
    * Update particle position and velocity
    */
   update(dt: number = 1): void {
     // Update velocity with acceleration
     this.velocity = this.velocity.add(this.acceleration.mult(dt));
-    
+
     // Update position with velocity
     this.position = this.position.add(this.velocity.mult(dt));
-    
+
     // Add current position to trail
     this.trail.push(this.position.copy());
     if (this.trail.length > this.maxTrailLength) {
       this.trail.shift();
     }
-    
-    // Reset acceleration and net force for next frame
-    this.acceleration = new Vector2D(0, 0);
-    this.netForce = new Vector2D(0, 0);
   }
 
   /**
@@ -61,15 +71,15 @@ export class Particle {
   attractionTo(other: Particle, G: number = 1): Vector2D {
     const direction = other.position.sub(this.position);
     const distanceSquared = direction.magnitudeSquared();
-    
-    // Prevent division by zero and extreme forces at very close distances
-    const minDistance = (this.radius + other.radius);
-    const clampedDistance = Math.max(distanceSquared, minDistance * minDistance);
-    
-    // Calculate force magnitude
-    const forceMagnitude = (G * this.mass * other.mass) / clampedDistance;
-    
-    // Return force vector
+
+    // Softening: below the sum of the two radii the bodies are touching, and an
+    // unsoftened 1/r² would launch them to infinity in a single Euler step.
+    // Clamping r² to (r1 + r2)² caps the force at its surface-contact value.
+    const contactDistance = this.radius + other.radius;
+    const softenedDistanceSquared = Math.max(distanceSquared, contactDistance * contactDistance);
+
+    const forceMagnitude = (G * this.mass * other.mass) / softenedDistanceSquared;
+
     return direction.normalize().mult(forceMagnitude);
   }
 

@@ -1,5 +1,5 @@
 import { Particle } from './Particle';
-import { VectorField } from './VectorField';
+import { VectorField, ViewBounds } from './VectorField';
 
 /**
  * Physics engine that handles gravity calculations and updates
@@ -8,14 +8,10 @@ export class PhysicsEngine {
   particles: Particle[] = [];
   vectorField: VectorField;
   G: number = 0.5; // Gravitational constant
-  private width: number;
-  private height: number;
 
-  constructor(width: number, height: number) {
-    this.width = width;
-    this.height = height;
+  constructor(baseGridSize: number = 30) {
     // Smaller grid size (30) for denser vector field visualization
-    this.vectorField = new VectorField(width, height, 30);
+    this.vectorField = new VectorField(baseGridSize);
   }
 
   /**
@@ -43,40 +39,64 @@ export class PhysicsEngine {
   }
 
   /**
-   * Update all particles and vector field
+   * Clear last step's accumulation and sum the pairwise gravitational forces.
+   *
+   * Split out from integration so a paused simulation can still show correct
+   * force arrows: the UI calls this alone while paused, so adding or deleting
+   * a body updates every arrow without anything moving.
+   *
+   * O(n²) in the particle count — see ROADMAP.md on Barnes-Hut.
    */
-  update(): void {
-    // Calculate gravitational forces between all particles
+  computeForces(): void {
+    for (const particle of this.particles) {
+      particle.resetForces();
+    }
+
     for (let i = 0; i < this.particles.length; i++) {
       for (let j = i + 1; j < this.particles.length; j++) {
         const particleA = this.particles[i];
         const particleB = this.particles[j];
 
-        // Calculate attraction force
         const force = particleA.attractionTo(particleB, this.G);
 
-        // Apply equal and opposite forces (Newton's 3rd law)
+        // Equal and opposite (Newton's 3rd law)
         particleA.applyForce(force);
         particleB.applyForce(force.mult(-1));
       }
     }
-
-    // Update all particles
-    for (const particle of this.particles) {
-      particle.update();
-    }
-
-    // Update vector field
-    this.vectorField.update(this.particles, this.G);
   }
 
   /**
-   * Resize the physics engine
+   * Integrate every particle forward by one step.
+   *
+   * `netForce` deliberately survives this call — the renderer reads it right
+   * afterwards to draw each particle's force arrow.
    */
-  resize(width: number, height: number): void {
-    this.width = width;
-    this.height = height;
-    this.vectorField.resize(width, height);
+  integrate(dt: number = 1): void {
+    for (const particle of this.particles) {
+      particle.update(dt);
+    }
+  }
+
+  /** One simulation step: forces, then integration. */
+  step(dt: number = 1): void {
+    this.computeForces();
+    this.integrate(dt);
+  }
+
+  /**
+   * Rebuild the vector field for the region of world space currently on
+   * screen. `view` comes from the camera, so the field covers what the user
+   * can actually see rather than a fixed box around the origin.
+   */
+  updateField(view: ViewBounds): void {
+    this.vectorField.update(this.particles, this.G, view);
+  }
+
+  /** Step the simulation and rebuild the field. */
+  update(view: ViewBounds, dt: number = 1): void {
+    this.step(dt);
+    this.updateField(view);
   }
 
   /**

@@ -1,203 +1,179 @@
 # Gravity Simulator
 
-A 2D gravity simulator with vector field visualization built with p5.js and TypeScript.
+An interactive 2D N-body gravity simulator that draws the gravitational field
+itself, not just the bodies moving through it. TypeScript and p5.js.
 
-## Features
+[![CI](https://github.com/Dimitriuses/gravity-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Dimitriuses/gravity-simulator/actions/workflows/ci.yml)
+[![Deploy demo](https://github.com/Dimitriuses/gravity-simulator/actions/workflows/pages.yml/badge.svg)](https://github.com/Dimitriuses/gravity-simulator/actions/workflows/pages.yml)
+![TypeScript 5](https://img.shields.io/badge/TypeScript-5-3178c6)
+![p5.js 1.x](https://img.shields.io/badge/p5.js-1.x-ed225d)
+[![status: active](https://img.shields.io/badge/status-active-brightgreen)](ROADMAP.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- **Interactive particle placement**: Click and drag to add objects with custom velocity
-- **Particle management**: 
-  - Live list of all particles with mass display
-  - Individual delete buttons for each particle
-  - Clear all button for complete reset
-- **Real-time gravity simulation**: N-body gravitational interactions
-- **Camera controls**: Full zoom and pan capabilities
-  - **Mouse wheel zoom**: Zoom in/out centered on cursor position (10% - 500%)
-  - **Pan view**: Middle-click drag or Ctrl+Click drag to move around
-  - **Reset camera**: Instantly return to default view
-  - Smooth, intuitive navigation for exploring large simulations
-- **Adaptive density vector field**: Revolutionary visualization system
-  - **Grid Mode Options**:
-    - **Adaptive (default)**: Denser near objects, sparser far away - best for detailed force visualization
-    - **Uniform**: Regular grid across entire visible area - best for seeing overall field structure
-  - **Adaptive mode features**:
-    - **4 density zones**: Very close (30% spacing), close (50%), medium (80%), far (120%)
-    - Sample points cluster around particles for maximum detail
-  - **Uniform mode features**:
-    - Evenly spaced grid across entire screen
-    - Shows force field everywhere, even in empty space
-    - Better for understanding field topology
-  - **Color-coded by strength**: Red (strong) → Yellow → Green → Cyan → Blue (weak)
-  - **Adjustable range**: Control how far vectors extend from objects (100-800px)
-  - Logarithmic scaling for visibility across all force ranges
-- **Particle vector visualization**: Each particle displays two vectors
-  - **Orange arrow**: Net gravitational force (direction particle is being pulled)
-  - **Cyan arrow**: Velocity vector (direction and speed of movement)
-- **Particle trails**: Visual history of particle movement
-- **Adjustable mass**: Change the mass of particles before adding them (10-200)
-- **Visual customization**: Real-time adjustment of object and arrow sizes
-- **Pause/Resume**: Control the simulation
-- **Responsive**: Automatically adjusts to window size
+<!-- Uncomment once Pages has deployed green — see "Deploying" below.
+**[▶ Live demo](https://dimitriuses.github.io/gravity-simulator/)**
+-->
 
-## Project Structure
+![A heavy primary with two satellites, the gravitational field drawn as a coloured arrow grid](screenshots/01-overview.png)
+
+## What it does
+
+Place bodies with the mouse and watch them interact under Newtonian gravity.
+The distinguishing feature is the **field visualization**: the gravitational
+field is sampled across visible space and drawn as a grid of arrows, coloured
+and sized by strength, so the shape of the potential well is visible rather than
+inferred from how things move.
+
+- **N-body simulation** — every body attracts every other, `F = G·m₁·m₂/r²`,
+  softened at contact distance so a close pass stays finite.
+- **Two field sampling modes.** *Adaptive* concentrates samples near bodies,
+  where the field has structure, using four density zones and deduplicating
+  where zones overlap. *Uniform* lays a regular lattice across the view, which
+  reads the overall topology better.
+- **Per-body vectors** — net gravitational force (orange) and velocity (cyan),
+  drawn on each body.
+- **Camera** — wheel zoom about the cursor (10%–500%) and drag-to-pan. The field
+  is resampled for whatever is on screen.
+- **Trails**, adjustable mass, field range, body scale and arrow scale, and a
+  pause that keeps the force arrows live so you can inspect a frozen
+  configuration.
+
+| | |
+|---|---|
+| ![Adaptive sampling, dense near the mass](screenshots/02-adaptive-field.png) | ![Uniform lattice across the view](screenshots/03-uniform-field.png) |
+| **Adaptive** — samples cluster where the field changes fastest | **Uniform** — even lattice, better for reading overall structure |
+| ![Dragging to aim a new body](screenshots/04-drag-to-launch.png) | ![Force and velocity arrows on two satellites](screenshots/05-particle-vectors.png) |
+| **Drag to launch** — the drag vector sets initial velocity | **Per-body vectors** — orange force, cyan velocity |
+
+## Controls
+
+| Input | Action |
+|---|---|
+| **Left-click drag** on empty space | Place a body; the drag direction and length set its initial velocity |
+| **Left-click** (no drag) | Place a stationary body |
+| **Middle-drag**, or **Ctrl + left-drag** | Pan the view |
+| **Scroll wheel** | Zoom about the cursor, 10%–500% |
+| **Reset Camera** | Back to origin at 100% |
+| **✕** next to a body in the list | Delete that body |
+| **Clear All** / **Pause** | Empty the scene / freeze it |
+
+Mass, field range, body size and arrow size are sliders in the control panel;
+the *Grid Mode* dropdown switches sampling mode.
+
+## How it works
+
+The simulation core is plain TypeScript with no p5 dependency, which is what
+makes it testable without a browser:
 
 ```
-gravity-simulator/
-├── src/
-│   ├── main.ts           # Entry point and p5.js sketch
-│   ├── Vector2D.ts       # 2D vector math operations
-│   ├── Particle.ts       # Particle class with physics
-│   ├── VectorField.ts    # Vector field calculation and storage
-│   ├── PhysicsEngine.ts  # Main physics engine
-│   └── Renderer.ts       # Visualization and rendering
-├── index.html            # HTML entry point with UI
-├── package.json          # Dependencies and scripts
-├── tsconfig.json         # TypeScript configuration
-└── vite.config.ts        # Vite bundler configuration
+main.ts             p5 sketch: input, UI wiring, frame loop
+  ├── Camera            zoom/pan, screen<->world, visible world rectangle
+  ├── PhysicsEngine     particle list, pairwise forces, integration
+  │     ├── Particle       state, F=ma, force law, trail
+  │     └── VectorField    field sampling (uniform | adaptive) + OccupancyGrid
+  └── Renderer        all canvas drawing
+        └── Vector2D     immutable 2D vector maths
 ```
 
-## Setup and Installation
+Two details worth calling out:
 
-### Prerequisites
-- Node.js (v16 or higher)
-- npm or yarn
+**Integration is semi-implicit (symplectic) Euler** — velocity is advanced
+first, then position using the *new* velocity. That makes it symplectic, so
+energy oscillates within a bound rather than growing: over 1000 orbits at radius
+200, orbital energy moved 0.017% and the radius stayed within 198.2–201.8. The
+error appears as phase (~0.066°/orbit), not as a spiral. What it does *not*
+survive is a tight orbit at a fixed step — see
+[Known limitations](#known-limitations).
 
-### Installation
+**Adaptive sampling deduplicates through a spatial hash.** Where two bodies'
+zones overlap, a candidate sample is rejected if an accepted one already sits
+within half a grid step on both axes. That test was a linear scan over every
+accepted sample — quadratic in sample count, and the dominant cost of a frame.
+`OccupancyGrid` answers the same question in roughly constant time;
+`tests/OccupancyGrid.test.ts` checks it against the naive scan over thousands of
+queries so the optimisation is provably behaviour-preserving.
 
-1. Install dependencies:
+## Running it
+
+Requires Node 22 (see [`.nvmrc`](.nvmrc)).
+
 ```bash
 npm install
+npm run dev        # http://localhost:3000
 ```
-
-2. Start the development server:
-```bash
-npm run dev
-```
-
-3. Open your browser to `http://localhost:3000`
-
-### Build for Production
 
 ```bash
-npm run build
+npm run build      # -> dist/
+npm run preview    # serve the build
 ```
 
-The built files will be in the `dist/` directory.
+`npm run dev` uses esbuild and **does not typecheck**. Run `npm run typecheck`
+before trusting a change.
 
-## How to Use
+## Tests
 
-1. **Add particles**: Click and drag on the canvas. The direction and length of your drag determines the initial velocity.
-2. **Delete particles**: Use the ✕ button next to each particle in the list (bottom-left panel), or use "Clear All" to remove everything.
-2. **Adjust mass**: Use the slider in the control panel to change the mass of new particles (10-200).
-3. **Adjust vector range**: Use the "Vector Range" slider to control how far the field extends from objects (100-800px).
-   - Lower values: Only show strong nearby forces (cleaner, faster)
-   - Higher values: Show forces further out (more comprehensive view)
-4. **Camera Controls**:
-   - **Zoom**: Scroll mouse wheel to zoom in/out (centered on mouse position)
-   - **Pan**: Middle-click and drag OR Ctrl+Click and drag to pan the view
-   - **Reset Camera**: Click the "Reset Camera" button to return to default view
-   - Current zoom level is displayed in the controls panel
-5. **Render Settings**:
-   - **Object Size** (0.3x - 3.0x): Scale the visual size of particles without affecting physics
-   - **Arrow Size** (0.3x - 3.0x): Scale all arrows (field vectors and particle vectors) for better visibility
-6. **Grid Mode**: Choose between vector field generation modes
-   - **Adaptive**: Denser near objects, sparser far away (best for detail)
-   - **Uniform**: Regular grid across screen (best for field structure)
-7. **Toggle vector field**: Check/uncheck "Show Vector Field" to show/hide gravitational force arrows across space.
-8. **Toggle particle vectors**: Check/uncheck "Show Particle Vectors" to show/hide force and velocity arrows on each particle.
-9. **Toggle trails**: Check/uncheck "Show Trails" to show/hide particle paths.
-10. **Pause/Resume**: Click the pause button to freeze/unfreeze the simulation.
-11. **Clear all**: Remove all particles and start fresh.
-
-## Physics Details
-
-### Gravitational Force
-The simulation uses Newton's law of universal gravitation:
-
-```
-F = G × m₁ × m₂ / r²
+```bash
+npm run typecheck   # tsc over src, tests and the vite config
+npm test            # 73 unit tests, headless, ~1s
+npm run smoketest   # build first, then drive dist/ in headless Chromium
+npm run screenshots # the same run, regenerating screenshots/
 ```
 
-Where:
-- `G` is the gravitational constant (default: 0.5)
-- `m₁` and `m₂` are the masses of the two particles
-- `r` is the distance between them
+The unit tests cover the whole simulation core — vector maths, the force law and
+its softening, integration and momentum conservation, camera transforms, and
+both field sampling modes — under Node with no DOM.
 
-### Integration
-The simulation uses Euler integration to update particle positions:
+The smoke test covers what only exists once pixels are on a canvas: it serves
+the real build over HTTP, drives it with genuine mouse and wheel events, and
+**judges colour by sampling the canvas backing store rather than by eye**. It
+asserts 24 properties, including that the background is the intended navy, that
+force and velocity arrows actually render, that a body created by dragging has
+the mass the slider shows, and that the field still draws after panning far from
+the origin. Every one of those corresponds to a defect that had shipped.
 
-```
-velocity = velocity + acceleration × dt
-position = position + velocity × dt
-```
+Both run in CI, on Linux and Windows.
 
-### Vector Field
-The vector field is calculated on a grid, showing the gravitational force at each point in space from all particles. 
+## Deploying
 
-**Performance Optimization:** The field uses spatial culling - vectors are only calculated within the "influence radius" of each particle (where the force is significant). This means:
-- Near particles: dense, colorful vector fields showing strong forces
-- Far from particles: no vectors drawn (negligible forces)
-- Performance scales with number and mass of particles, not screen size
+The demo deploys to GitHub Pages from
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push to
+`master`. `vite.config.ts` sets `base: './'`, so the build works unchanged from
+a project sub-path.
 
-## Customization
+**First-time setup:** Settings → Pages → Source → **GitHub Actions**, *before*
+pushing. Selecting it first makes the first deploy succeed on attempt 1.
 
-### Adjust Gravitational Constant
-In `PhysicsEngine.ts`, change the `G` value:
-```typescript
-G: number = 0.5; // Increase for stronger gravity
-```
+## Known limitations
 
-### Adjust Vector Field Resolution
-In `PhysicsEngine.ts` constructor, change the grid size:
-```typescript
-this.vectorField = new VectorField(width, height, 30); // Change 30 to adjust density
-// Lower values = more arrows (denser), but slower performance
-// Higher values = fewer arrows (sparser), but better performance
-```
+Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
-### Adjust Trail Length
-In `Particle.ts`, change `maxTrailLength`:
-```typescript
-maxTrailLength: number = 50; // Number of trail points
-```
+- **Tight orbits are inaccurate.** The step is fixed at `dt = 1`, and orbital
+  period scales as r^1.5, so resolution collapses as orbits shrink: 1005 steps
+  per orbit at radius 400, 44 at radius 50, 5 at radius 12. Keep separations
+  above ~100 units for results you can trust.
+- **No collisions.** Bodies pass through one another; gravity is softened at
+  contact rather than resolved.
+- **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
+  normalized logarithmically against the range present in the current frame.
+  They compare bodies within a frame; they are not an absolute scale, and there
+  is no scale bar.
+- **Nothing persists.** No save, load or URL state.
+- **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
+  The page runs on a phone but cannot be panned or zoomed.
+- **O(n²) forces.** Fine at tens of bodies, not at thousands.
 
-### Visual Customization
-Use the in-app sliders for real-time adjustments:
-- **Object Size (0.3x - 3.0x)**: Makes particles appear larger or smaller without changing physics
-  - Useful for presentations or when particles are hard to see
-  - Does not affect gravitational calculations
-- **Arrow Size (0.3x - 3.0x)**: Scales all arrows uniformly
-  - Includes vector field arrows, force vectors, and velocity vectors
-  - Great for high-res displays or projectors
+## Roadmap
 
-## Future Enhancements
+Active development. [`ROADMAP.md`](ROADMAP.md) covers adaptive time-stepping and
+velocity Verlet, collisions and merging, a Barnes–Hut quadtree, shareable scenes
+encoded in the URL, and field readability work (scale bar, equipotential
+contours, streamlines) — plus what is deliberately deferred, and why.
 
-Ideas for extending the simulator:
-- Collision detection and merging
-- Adaptive time-stepping (RK4 integration)
-- Spatial partitioning (quadtree) for better performance with many particles
-- Save/load simulation states
-- Different force laws (inverse cube, etc.)
-- 3D visualization
-- Orbital mechanics tools (aphelion, perihelion markers)
+## Licence
 
-## Performance Notes
+MIT — see [`LICENSE`](LICENSE).
 
-The vector field visualization uses **adaptive density** with spatial culling:
-- **4 concentric zones** around each particle with different arrow densities:
-  - Very close (0-20% of range): 30% grid spacing (densest)
-  - Close (20-40%): 50% spacing
-  - Medium (40-70%): 80% spacing  
-  - Far (70-100%): 120% spacing (sparsest)
-- Sample points avoid duplicates when particle influence zones overlap
-- Only generates vectors within the adjustable max range
-- Performance scales with: number of particles × range² × base density
-
-**Performance tips:**
-- Reduce "Vector Range" slider for faster rendering (fewer samples)
-- Increase base grid size in `VectorField.ts` constructor (line 16) for sparser fields
-- Toggle off vector field temporarily when adding many particles
-- With default settings: smooth 60 FPS with 5-10 particles
-
-## License
-
-MIT
+p5.js is LGPL-2.1 and is redistributed in the build output; the build emits it
+as a separate, replaceable chunk for that reason. See [`NOTICE.md`](NOTICE.md).
+Everything in [`screenshots/`](screenshots/) is generated from this project by
+`npm run screenshots`.

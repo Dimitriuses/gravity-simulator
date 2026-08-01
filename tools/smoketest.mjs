@@ -1,0 +1,437 @@
+// ─── Headless smoke test / screenshot capture ────────────────────────────────
+//
+//   npm run smoketest      assert the built app actually works
+//   npm run screenshots    the same run, writing screenshots/*.png
+//
+// Serves ./dist over HTTP and drives it in headless Chromium. Every assertion
+// here corresponds to something that was measurably broken before: the canvas
+// colours were being read in the wrong colour mode, the force arrow was never
+// drawn, the mass slider disagreed with the simulation, and the vector field
+// was pinned to a fixed box at the world origin instead of following the
+// camera. Colours are judged by sampling pixels, never by eye.
+
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const DIST = path.join(ROOT, 'dist');
+const SHOTS = path.join(ROOT, 'screenshots');
+const WANT_SHOTS = process.argv.includes('--shots');
+
+const VIEWPORT = { width: 1280, height: 800 };
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+const failures = [];
+const results = [];
+
+function check(name, passed, detail) {
+  results.push({ name, passed, detail });
+  if (!passed) failures.push(`${name} — ${detail}`);
+  console.log(`  ${passed ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${name}${detail ? `  (${detail})` : ''}`);
+}
+
+if (!existsSync(path.join(DIST, 'index.html'))) {
+  console.error('dist/index.html not found — run `npm run build` first.');
+  process.exit(1);
+}
+
+// ─── Static server ───────────────────────────────────────────────────────────
+const server = createServer(async (req, res) => {
+  const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const file = path.join(DIST, rel === '/' ? 'index.html' : rel);
+  if (!file.startsWith(DIST)) {
+    res.writeHead(403).end();
+    return;
+  }
+  try {
+    const body = await readFile(file);
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    res.writeHead(404).end('not found');
+  }
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const BASE = `http://127.0.0.1:${server.address().port}/`;
+
+// ─── Browser ─────────────────────────────────────────────────────────────────
+const browser = await chromium.launch({
+  args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'],
+});
+const page = await browser.newPage({ viewport: VIEWPORT });
+
+const consoleErrors = [];
+const failedRequests = [];
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text());
+});
+page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
+page.on('requestfailed', (r) => failedRequests.push(`${r.url()} :: ${r.failure()?.errorText}`));
+
+/** Read the canvas backing store and answer a question about its pixels. */
+function onCanvas(fn, arg) {
+  return page.evaluate(
+    ({ src, arg }) => {
+      const canvas = document.querySelector('canvas');
+      const off = document.createElement('canvas');
+      off.width = canvas.width;
+      off.height = canvas.height;
+      const ctx = off.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(canvas, 0, 0);
+      const { data, width, height } = ctx.getImageData(0, 0, off.width, off.height);
+      // eslint-disable-next-line no-new-func
+      return new Function('data', 'width', 'height', 'arg', `return (${src})(data, width, height, arg)`)(
+        data,
+        width,
+        height,
+        arg
+      );
+    },
+    { src: fn.toString(), arg: arg ?? null }
+  );
+}
+
+/** Count pixels within `tol` of a target RGB. */
+const countNear = (data, _w, _h, { rgb, tol }) => {
+  let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (
+      Math.abs(data[i] - rgb[0]) <= tol &&
+      Math.abs(data[i + 1] - rgb[1]) <= tol &&
+      Math.abs(data[i + 2] - rgb[2]) <= tol
+    ) {
+      n++;
+    }
+  }
+  return n;
+};
+
+const shot = async (name) => {
+  if (!WANT_SHOTS) return;
+  if (!existsSync(SHOTS)) mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(SHOTS, name) });
+  console.log(`         wrote screenshots/${name}`);
+};
+
+console.log(`\nDriving the built app at ${BASE}\n`);
+
+try {
+  await page.goto(BASE, { waitUntil: 'load' });
+  await page.waitForFunction(() => !!document.querySelector('canvas'), { timeout: 20000 });
+  await page.waitForTimeout(1200);
+
+  // ── Boot ───────────────────────────────────────────────────────────────────
+  const canvasSize = await page.evaluate(() => {
+    const c = document.querySelector('canvas');
+    return { w: c.width, h: c.height };
+  });
+  check(
+    'canvas fills the window',
+    canvasSize.w >= VIEWPORT.width - 2 && canvasSize.h >= VIEWPORT.height - 2,
+    `${canvasSize.w}x${canvasSize.h}`
+  );
+
+  const seeded = await page.evaluate(() => document.getElementById('objectCount').textContent);
+  check('starts with the seeded two-body scene', seeded === '2', `objectCount=${seeded}`);
+
+  // ── Background colour ──────────────────────────────────────────────────────
+  // Was rgb(77,67,65) — a brown — because background(10,15,30) was being read
+  // as HSB after setup() set a global HSB colour mode.
+  const corner = await onCanvas((data, width) => {
+    const at = (x, y) => {
+      const i = (y * width + x) * 4;
+      return [data[i], data[i + 1], data[i + 2]];
+    };
+    return at(width - 30, 30);
+  });
+  check(
+    'background is the intended dark navy',
+    Math.abs(corner[0] - 10) <= 6 && Math.abs(corner[1] - 15) <= 6 && Math.abs(corner[2] - 30) <= 6,
+    `rgb(${corner.join(',')}) vs expected rgb(10,15,30)`
+  );
+
+  // ── Particle vectors ───────────────────────────────────────────────────────
+  // The orange force arrow never rendered: netForce was zeroed at the end of
+  // Particle.update(), before the renderer ever read it.
+  const orange = await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 });
+  check('orange net-force arrows are drawn', orange > 150, `${orange} matching pixels`);
+
+  const cyan = await onCanvas(countNear, { rgb: [0, 255, 255], tol: 60 });
+  check('cyan velocity arrows are drawn', cyan > 150, `${cyan} matching pixels`);
+
+
+  // ── Frame cost ─────────────────────────────────────────────────────────────
+  const perf = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const times = [];
+        let last = performance.now();
+        const tick = () => {
+          const now = performance.now();
+          times.push(now - last);
+          last = now;
+          if (times.length < 150) requestAnimationFrame(tick);
+          else {
+            times.sort((a, b) => a - b);
+            const median = times[Math.floor(times.length / 2)];
+            resolve({ medianMs: +median.toFixed(2), fps: +(1000 / median).toFixed(1) });
+          }
+        };
+        requestAnimationFrame(tick);
+      })
+  );
+  check('holds at least 50 fps on the seeded scene', perf.fps >= 50, `${perf.fps} fps, ${perf.medianMs} ms/frame`);
+
+  // ── The drag preview ───────────────────────────────────────────────────────
+  // Was stroke(255,200,0) interpreted as HSB — brightness 0, i.e. black on a
+  // dark background.
+  await page.mouse.move(760, 250);
+  await page.mouse.down();
+  await page.mouse.move(920, 380, { steps: 15 });
+  await page.waitForTimeout(200);
+
+  const preview = await onCanvas(countNear, { rgb: [255, 200, 0], tol: 45 });
+  check('drag preview arrow is visible', preview > 60, `${preview} matching pixels`);
+
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+
+  // ── UI and simulation agree ────────────────────────────────────────────────
+  // The slider read 200 while new bodies were created with mass 50.
+  const massAgreement = await page.evaluate(() => {
+    const slider = document.getElementById('massSlider').value;
+    const rows = [...document.querySelectorAll('.particle-item span')].map((e) => e.textContent);
+    const last = rows[rows.length - 1];
+    return { slider, last, count: document.getElementById('objectCount').textContent };
+  });
+  check(
+    'a dragged-out body gets the mass the slider shows',
+    massAgreement.last === `#3 - Mass: ${massAgreement.slider}`,
+    `slider=${massAgreement.slider}, created "${massAgreement.last}"`
+  );
+  check('the new body was added', massAgreement.count === '3', `objectCount=${massAgreement.count}`);
+
+  // ── The field follows the camera ───────────────────────────────────────────
+  // It used to be built inside a fixed box the size of the canvas centred on
+  // the world origin, so panning away showed empty space.
+  const fieldPixels = async () =>
+    onCanvas((data) => {
+      // Anything appreciably brighter than the background counts as drawn.
+      let n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] + data[i + 1] + data[i + 2] > 160) n++;
+      }
+      return n;
+    });
+
+  const beforePan = await fieldPixels();
+  // Ctrl+drag pans. Move the world a long way from the origin.
+  await page.keyboard.down('Control');
+  await page.mouse.move(700, 400);
+  await page.mouse.down();
+  await page.mouse.move(200, 200, { steps: 20 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(500);
+  const afterPan = await fieldPixels();
+  check(
+    'the vector field still renders after panning off-origin',
+    afterPan > beforePan * 0.25,
+    `${beforePan} -> ${afterPan} lit pixels`
+  );
+
+  // ── Zoom ───────────────────────────────────────────────────────────────────
+  await page.mouse.move(640, 400);
+  await page.mouse.wheel(0, -600);
+  await page.waitForTimeout(400);
+  const zoomedIn = await page.evaluate(() => document.getElementById('zoomValue').textContent);
+  check('mouse wheel zooms in', Number(zoomedIn) > 100, `zoom=${zoomedIn}%`);
+
+  await page.click('#resetCameraBtn');
+  await page.waitForTimeout(400);
+  const reset = await page.evaluate(() => document.getElementById('zoomValue').textContent);
+  check('reset camera returns to 100%', reset === '100', `zoom=${reset}%`);
+
+
+  // ── Grid modes ─────────────────────────────────────────────────────────────
+  // Both modes must draw a field, and they must draw a *different* one —
+  // otherwise the selector is decorative. Judged against the empty-canvas
+  // baseline measured at the end of the run rather than a guessed threshold.
+  const adaptiveLit = await fieldPixels();
+
+  await page.selectOption('#gridModeSelect', 'uniform');
+  await page.waitForTimeout(600);
+  const uniformLit = await fieldPixels();
+
+  check('adaptive grid mode renders a field', adaptiveLit > 1000, `${adaptiveLit} lit pixels`);
+  check('uniform grid mode renders a field', uniformLit > 1000, `${uniformLit} lit pixels`);
+  check(
+    'the two grid modes render differently',
+    Math.abs(adaptiveLit - uniformLit) > 200,
+    `adaptive ${adaptiveLit} vs uniform ${uniformLit} lit pixels`
+  );
+
+  await page.selectOption('#gridModeSelect', 'adaptive');
+  await page.waitForTimeout(600);
+
+  // ── Pause / resume ─────────────────────────────────────────────────────────
+  const positionsWhile = async (frames) => {
+    await page.waitForTimeout(frames);
+    return onCanvas((data) => {
+      let hash = 0;
+      for (let i = 0; i < data.length; i += 997 * 4) hash = (hash * 31 + data[i]) >>> 0;
+      return hash;
+    });
+  };
+
+  await page.click('#pauseBtn');
+  await page.waitForTimeout(300);
+  const pausedA = await positionsWhile(500);
+  const pausedB = await positionsWhile(500);
+  check('pause freezes the simulation', pausedA === pausedB, `frame hashes ${pausedA} / ${pausedB}`);
+
+  const pauseLabel = await page.evaluate(() => document.getElementById('pauseBtn').textContent);
+  check('pause button relabels to Resume', pauseLabel === 'Resume', `label="${pauseLabel}"`);
+
+  // Force arrows must survive a pause — they are recomputed, not integrated.
+  const orangeWhilePaused = await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 });
+  check(
+    'force arrows stay drawn while paused',
+    orangeWhilePaused > 100,
+    `${orangeWhilePaused} matching pixels`
+  );
+
+  await page.click('#pauseBtn');
+  await page.waitForTimeout(300);
+  const resumedA = await positionsWhile(500);
+  const resumedB = await positionsWhile(500);
+  check('resume restarts the simulation', resumedA !== resumedB, `frame hashes ${resumedA} / ${resumedB}`);
+
+  // ── Deleting and clearing ──────────────────────────────────────────────────
+  await page.click('.particle-item button');
+  await page.waitForTimeout(300);
+  const afterDelete = await page.evaluate(() => document.getElementById('objectCount').textContent);
+  check('deleting one body updates the count', afterDelete === '2', `objectCount=${afterDelete}`);
+
+  await page.click('#clearBtn');
+  await page.waitForTimeout(400);
+  const afterClear = await page.evaluate(() => ({
+    count: document.getElementById('objectCount').textContent,
+    rows: document.querySelectorAll('.particle-item').length,
+  }));
+  check(
+    'clear all empties the scene and the list',
+    afterClear.count === '0' && afterClear.rows === 0,
+    `count=${afterClear.count}, rows=${afterClear.rows}`
+  );
+
+  const emptyField = await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 });
+  check('no arrows remain once the scene is empty', emptyField < 20, `${emptyField} matching pixels`);
+
+  // ── Composed scenes for the README ─────────────────────────────────────────
+  // Built by driving the real controls, so a screenshot can only show something
+  // the app can actually do.
+  if (WANT_SHOTS) {
+    console.log('\n  composing screenshot scenes\n');
+
+    const setSlider = async (id, value) => {
+      await page.locator(id).fill(String(value));
+      await page.waitForTimeout(60);
+    };
+    /** Place a body by dragging: start point sets position, the drag sets velocity. */
+    const launch = async (x, y, dx = 0, dy = 0) => {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      if (dx || dy) await page.mouse.move(x + dx, y + dy, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+    };
+
+    // A heavy primary with two satellites on near-circular orbits.
+    // v = sqrt(G·M/r) with G = 0.5, M = 5000, r = 200  ->  v ≈ 3.54 world
+    // units, and the drag-to-velocity factor is 0.05, so ≈ 71 px of drag.
+    await page.click('#clearBtn');
+    await setSlider('#rangeSlider', 300);
+    await setSlider('#massSlider', 5000);
+    await launch(640, 400);
+    await setSlider('#massSlider', 200);
+    await launch(440, 400, 0, -71);
+    await launch(840, 400, 0, 71);
+
+    // Let the orbits draw their trails.
+    await page.waitForTimeout(7000);
+    await shot('01-overview.png');
+
+    // Same scene, uniform grid, for the mode comparison.
+    await page.selectOption('#gridModeSelect', 'uniform');
+    await page.waitForTimeout(900);
+    await shot('03-uniform-field.png');
+
+    await page.selectOption('#gridModeSelect', 'adaptive');
+    await page.waitForTimeout(900);
+
+    // Close in on the primary so the four density zones are legible. Zoom is
+    // proportional to wheel delta, so this is a sequence of notches, the way a
+    // mouse actually delivers them.
+    const wheel = async (x, y, notches) => {
+      await page.mouse.move(x, y);
+      for (let i = 0; i < Math.abs(notches); i++) {
+        await page.mouse.wheel(0, notches > 0 ? -100 : 100);
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(700);
+    };
+
+    await wheel(640, 400, 9); // ~2.4x
+    await shot('02-adaptive-field.png');
+
+    await page.click('#resetCameraBtn');
+    await page.waitForTimeout(900);
+
+    // A satellite close-up: force arrow towards the primary, velocity along
+    // the orbit.
+    await setSlider('#arrowSizeSlider', 1.4);
+    await wheel(760, 480, 7); // ~1.9x, framed on a satellite
+    await shot('05-particle-vectors.png');
+
+    await setSlider('#arrowSizeSlider', 1.0);
+    await page.click('#resetCameraBtn');
+    await page.waitForTimeout(600);
+
+    // Mid-drag, showing the aiming arrow.
+    await setSlider('#massSlider', 1200);
+    await page.mouse.move(520, 250);
+    await page.mouse.down();
+    await page.mouse.move(760, 420, { steps: 20 });
+    await page.waitForTimeout(400);
+    await shot('04-drag-to-launch.png');
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+
+  // ── Console hygiene ────────────────────────────────────────────────────────
+  check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+  check('no failed requests', failedRequests.length === 0, failedRequests.slice(0, 3).join(' | '));
+} finally {
+  await browser.close();
+  server.close();
+}
+
+console.log(
+  `\n${results.filter((r) => r.passed).length}/${results.length} checks passed` +
+    (failures.length ? `\n\nFailures:\n${failures.map((f) => `  - ${f}`).join('\n')}\n` : '\n')
+);
+process.exit(failures.length ? 1 : 0);

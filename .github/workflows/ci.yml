@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Typecheck, unit tests and a production build on both Linux and Windows —
+  # the project is developed on Windows and deployed from Linux, so the
+  # contrast is worth proving rather than assuming.
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Printed before the install so an `npm ci` failure is diagnosable from
+      # the log alone: the npm major that consumes the lockfile is decided by
+      # the Node version, and is routinely a major behind a developer's global
+      # npm. See tools/verify-install.mjs.
+      - name: Toolchain versions
+        run: node --version && npm --version
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  # Boots the built page in a real browser and drives it: places bodies, pans,
+  # zooms, switches field modes, pauses. Fails on any console error, any failed
+  # request, or any of the rendering regressions the unit tests cannot see —
+  # colours are checked by sampling canvas pixels. "It works" as a checkmark
+  # rather than a claim.
+  smoketest:
+    name: smoke test (headless chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Toolchain versions
+        run: node --version && npm --version
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Drive the app
+        run: npm run smoketest

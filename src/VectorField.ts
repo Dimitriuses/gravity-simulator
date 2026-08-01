@@ -4,114 +4,198 @@ import { Particle } from './Particle';
 /**
  * Represents a single vector sample point in the field
  */
-interface VectorSample {
+export interface VectorSample {
   position: Vector2D;
   force: Vector2D;
 }
 
 /**
- * Represents a vector field showing gravitational forces with adaptive density
+ * The rectangle of world space currently on screen, supplied by the camera.
+ * The field is only ever built for this region — sampling outside it is work
+ * whose result nobody can see.
+ */
+export interface ViewBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/** Forces below this are not worth an arrow. */
+const MIN_FORCE = 0.001;
+
+/**
+ * Upper bound on samples per frame. Reached only by zooming far out in uniform
+ * mode, where the visible world area grows as 1/zoom²; at the minimum zoom of
+ * 0.1 an unbounded grid would ask for ~113,000 arrows and lock the tab. Uniform
+ * mode responds by coarsening its spacing (the field stays uniform, just less
+ * dense); adaptive mode stops adding samples.
+ */
+export const MAX_SAMPLES = 12000;
+
+/**
+ * Answers "is there already an accepted sample within `half` on both axes?" in
+ * roughly constant time.
+ *
+ * This replaces a linear scan over every accepted sample, which made adaptive
+ * mode quadratic in the sample count — the dominant cost of a frame. The
+ * predicate is unchanged, so the field it produces is identical; the grid only
+ * narrows which samples have to be tested. tests/OccupancyGrid.test.ts pins
+ * that equivalence against the naive scan.
+ */
+export class OccupancyGrid {
+  private cells = new Map<string, Vector2D[]>();
+
+  /**
+   * @param cellSize should be at least the largest `half` that will be queried,
+   *   which keeps every lookup to a 2x2 or 3x3 block of cells.
+   */
+  constructor(private cellSize: number) {}
+
+  clear(): void {
+    this.cells.clear();
+  }
+
+  has(x: number, y: number, half: number): boolean {
+    const minCX = Math.floor((x - half) / this.cellSize);
+    const maxCX = Math.floor((x + half) / this.cellSize);
+    const minCY = Math.floor((y - half) / this.cellSize);
+    const maxCY = Math.floor((y + half) / this.cellSize);
+
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        const bucket = this.cells.get(`${cx},${cy}`);
+        if (!bucket) continue;
+        for (const p of bucket) {
+          if (Math.abs(p.x - x) < half && Math.abs(p.y - y) < half) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  add(point: Vector2D): void {
+    const key = `${Math.floor(point.x / this.cellSize)},${Math.floor(point.y / this.cellSize)}`;
+    const bucket = this.cells.get(key);
+    if (bucket) bucket.push(point);
+    else this.cells.set(key, [point]);
+  }
+}
+
+/**
+ * Gravitational field sampled on a grid, in one of two modes.
+ *
+ * `uniform` walks a regular lattice across the visible region. `adaptive`
+ * instead walks four concentric rings around each particle, spacing samples
+ * more finely close in — which is where the field actually has structure —
+ * and deduplicates where rings from different particles overlap.
  */
 export class VectorField {
   samples: VectorSample[] = [];
-  width: number;
-  height: number;
-  maxInfluenceRadius: number = 300; // Maximum range to show vectors (user-adjustable)
-  baseGridSize: number = 30; // Base grid size for far-away vectors
-  gridMode: 'uniform' | 'adaptive' = 'adaptive'; // Grid generation mode
+  maxInfluenceRadius: number = 300; // Range over which vectors are drawn (user-adjustable)
+  baseGridSize: number = 30; // Nominal sample spacing
+  gridMode: 'uniform' | 'adaptive' = 'adaptive';
 
-  constructor(width: number, height: number, baseGridSize: number = 30) {
-    this.width = width;
-    this.height = height;
+  /**
+   * Index over the accepted samples, used by adaptive mode's duplicate test.
+   * Rebuilt every frame alongside `samples`.
+   */
+  private occupancy = new OccupancyGrid(1);
+
+  constructor(baseGridSize: number = 30) {
     this.baseGridSize = baseGridSize;
   }
 
   /**
-   * Update the vector field with adaptive density
-   * Denser near particles, sparser far away
+   * Rebuild the field for the current particles and camera view.
    */
-  update(particles: Particle[], G: number = 1): void {
+  update(particles: Particle[], G: number = 1, view: ViewBounds): void {
     this.samples = [];
+    this.occupancy.clear();
 
-    // Early exit if no particles
     if (particles.length === 0) return;
 
     if (this.gridMode === 'uniform') {
-      this.generateUniformGrid(particles, G);
+      this.generateUniformGrid(particles, G, view);
     } else {
-      this.generateAdaptiveGrid(particles, G);
+      this.generateAdaptiveGrid(particles, G, view);
     }
   }
 
   /**
-   * Generate uniform grid covering the entire visible area
+   * Regular lattice across the whole visible region.
+   *
+   * The lattice is anchored to world coordinates rather than to the viewport,
+   * so arrows stay put while the camera pans instead of crawling across the
+   * screen.
    */
-  private generateUniformGrid(particles: Particle[], G: number): void {
-    const gridSize = this.baseGridSize;
-    
-    // Generate grid points across entire visible area
-    for (let x = -this.width / 2; x < this.width / 2; x += gridSize) {
-      for (let y = -this.height / 2; y < this.height / 2; y += gridSize) {
+  private generateUniformGrid(particles: Particle[], G: number, view: ViewBounds): void {
+    const width = view.maxX - view.minX;
+    const height = view.maxY - view.minY;
+
+    // Coarsen rather than truncate when the visible area is too large to
+    // sample at the nominal spacing (see MAX_SAMPLES).
+    let gridSize = this.baseGridSize;
+    const wanted = (width / gridSize) * (height / gridSize);
+    if (wanted > MAX_SAMPLES) {
+      gridSize *= Math.sqrt(wanted / MAX_SAMPLES);
+    }
+
+    const startX = Math.floor(view.minX / gridSize) * gridSize;
+    const startY = Math.floor(view.minY / gridSize) * gridSize;
+
+    for (let x = startX; x <= view.maxX; x += gridSize) {
+      for (let y = startY; y <= view.maxY; y += gridSize) {
         const samplePoint = new Vector2D(x, y);
-        
-        // Calculate force at this point
-        let totalForce = new Vector2D(0, 0);
-        let withinRange = false;
+        const force = this.calculateForceAt(samplePoint, particles, G);
 
-        for (const particle of particles) {
-          const direction = particle.position.sub(samplePoint);
-          const distanceSquared = direction.magnitudeSquared();
-          
-          // Skip if beyond user-defined max range
-          if (distanceSquared > this.maxInfluenceRadius * this.maxInfluenceRadius) continue;
-          
-          withinRange = true;
-          
-          // Prevent extreme values
-          const minDistSquared = Math.max(distanceSquared, particle.radius * particle.radius);
-          
-          // F = G * m / r^2
-          const forceMagnitude = (G * particle.mass) / minDistSquared;
-          const force = direction.normalize().mult(forceMagnitude);
-          
-          totalForce = totalForce.add(force);
-        }
-
-        // Only add sample if it's within range of at least one particle and has significant force
-        if (withinRange && totalForce.magnitude() > 0.001) {
-          this.samples.push({ position: samplePoint, force: totalForce });
+        if (force.magnitude() > MIN_FORCE) {
+          this.samples.push({ position: samplePoint, force });
         }
       }
     }
   }
 
   /**
-   * Generate adaptive grid with density zones around each particle
+   * Four density zones per particle: dense near the body, sparse at the edge of
+   * its influence.
    */
-  private generateAdaptiveGrid(particles: Particle[], G: number): void {
-    // For each particle, generate sample points with varying density
+  private generateAdaptiveGrid(particles: Particle[], G: number, view: ViewBounds): void {
+    const maxRadius = this.maxInfluenceRadius;
+
+    // Zone spacings as fractions of the base grid: 30%, 50%, 80%, 120%.
+    const zones = [
+      { maxDist: maxRadius * 0.2, gridSize: this.baseGridSize * 0.3 },
+      { maxDist: maxRadius * 0.4, gridSize: this.baseGridSize * 0.5 },
+      { maxDist: maxRadius * 0.7, gridSize: this.baseGridSize * 0.8 },
+      { maxDist: maxRadius, gridSize: this.baseGridSize * 1.2 },
+    ];
+
+    // The duplicate test asks "is an existing sample within gridSize/2 on both
+    // axes?". Sizing the hash cells to the largest such half-width any zone can
+    // ask for — the outermost zone's 1.2 x base, halved — keeps every query to
+    // a 2x2 or 3x3 block of cells.
+    this.occupancy = new OccupancyGrid(Math.max(this.baseGridSize * 0.6, 1e-6));
+
     for (const particle of particles) {
-      // Use the user-defined maxInfluenceRadius directly
-      const maxRadius = this.maxInfluenceRadius;
-
-      // Define density zones (closer = denser)
-      const zones = [
-        { maxDist: maxRadius * 0.2, gridSize: this.baseGridSize * 0.3 },  // Very close: 30% spacing
-        { maxDist: maxRadius * 0.4, gridSize: this.baseGridSize * 0.5 },  // Close: 50% spacing
-        { maxDist: maxRadius * 0.7, gridSize: this.baseGridSize * 0.8 },  // Medium: 80% spacing
-        { maxDist: maxRadius, gridSize: this.baseGridSize * 1.2 }          // Far: 120% spacing
-      ];
-
-      // Generate samples in each zone
+      let innerRadius = 0;
       for (const zone of zones) {
-        const innerRadius = zones.indexOf(zone) === 0 ? 0 : zones[zones.indexOf(zone) - 1].maxDist;
-        this.generateSamplesInRing(particle, innerRadius, zone.maxDist, zone.gridSize, particles, G);
+        this.generateSamplesInRing(
+          particle,
+          innerRadius,
+          zone.maxDist,
+          zone.gridSize,
+          particles,
+          G,
+          view
+        );
+        innerRadius = zone.maxDist;
       }
     }
   }
 
   /**
-   * Generate sample points in a ring around a particle
+   * Sample one annulus around a particle, clipped to the visible region.
    */
   private generateSamplesInRing(
     particle: Particle,
@@ -119,47 +203,53 @@ export class VectorField {
     outerRadius: number,
     gridSize: number,
     allParticles: Particle[],
-    G: number
+    G: number,
+    view: ViewBounds
   ): void {
     const centerX = particle.position.x;
     const centerY = particle.position.y;
 
-    // Calculate bounds (world coordinates are centered at origin)
-    const minX = Math.max(-this.width / 2, centerX - outerRadius);
-    const maxX = Math.min(this.width / 2, centerX + outerRadius);
-    const minY = Math.max(-this.height / 2, centerY - outerRadius);
-    const maxY = Math.min(this.height / 2, centerY + outerRadius);
+    // Clip the ring's bounding box to what is on screen.
+    const minX = Math.max(view.minX, centerX - outerRadius);
+    const maxX = Math.min(view.maxX, centerX + outerRadius);
+    const minY = Math.max(view.minY, centerY - outerRadius);
+    const maxY = Math.min(view.maxY, centerY + outerRadius);
 
-    // Generate grid points in this zone
-    for (let x = minX; x < maxX; x += gridSize) {
-      for (let y = minY; y < maxY; y += gridSize) {
+    // Snap to a world-anchored lattice per zone spacing. Two consequences, both
+    // wanted: samples do not crawl as the particle moves, and rings from
+    // different particles land on the same points instead of near-misses, so
+    // the duplicate test actually catches the overlap it is there to catch.
+    const startX = Math.ceil(minX / gridSize) * gridSize;
+    const startY = Math.ceil(minY / gridSize) * gridSize;
+
+    const halfSpacing = gridSize * 0.5;
+
+    for (let x = startX; x <= maxX; x += gridSize) {
+      for (let y = startY; y <= maxY; y += gridSize) {
+        if (this.samples.length >= MAX_SAMPLES) return;
+
         const dx = x - centerX;
         const dy = y - centerY;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Only include if in this ring
-        if (dist >= innerRadius && dist <= outerRadius) {
-          // Check if this point already exists (avoid duplicates from overlapping particles)
-          const exists = this.samples.some(s => 
-            Math.abs(s.position.x - x) < gridSize * 0.5 && 
-            Math.abs(s.position.y - y) < gridSize * 0.5
-          );
+        if (dist < innerRadius || dist > outerRadius) continue;
+        if (this.occupancy.has(x, y, halfSpacing)) continue;
 
-          if (!exists) {
-            const samplePoint = new Vector2D(x, y);
-            const force = this.calculateForceAt(samplePoint, allParticles, G);
-            
-            if (force.magnitude() > 0.001) {
-              this.samples.push({ position: samplePoint, force });
-            }
-          }
+        const samplePoint = new Vector2D(x, y);
+        const force = this.calculateForceAt(samplePoint, allParticles, G);
+
+        if (force.magnitude() > MIN_FORCE) {
+          this.samples.push({ position: samplePoint, force });
+          this.occupancy.add(samplePoint);
         }
       }
     }
   }
 
   /**
-   * Calculate total gravitational force at a point
+   * Total gravitational field at a point: the sum over every particle within
+   * range, of G·m/r². Field strength per unit mass, so the test particle's own
+   * mass does not appear.
    */
   private calculateForceAt(point: Vector2D, particles: Particle[], G: number): Vector2D {
     let totalForce = new Vector2D(0, 0);
@@ -167,29 +257,18 @@ export class VectorField {
     for (const particle of particles) {
       const direction = particle.position.sub(point);
       const distanceSquared = direction.magnitudeSquared();
-      
-      // Skip if beyond user-defined max range
+
+      // Skip if beyond the user-defined max range
       if (distanceSquared > this.maxInfluenceRadius * this.maxInfluenceRadius) continue;
-      
-      // Prevent extreme values
-      const minDistSquared = Math.max(distanceSquared, particle.radius * particle.radius);
-      
-      // F = G * m / r^2
-      const forceMagnitude = (G * particle.mass) / minDistSquared;
-      const force = direction.normalize().mult(forceMagnitude);
-      
-      totalForce = totalForce.add(force);
+
+      // Softened at the particle's own radius, as in Particle.attractionTo
+      const softened = Math.max(distanceSquared, particle.radius * particle.radius);
+
+      const forceMagnitude = (G * particle.mass) / softened;
+      totalForce = totalForce.add(direction.normalize().mult(forceMagnitude));
     }
 
     return totalForce;
-  }
-
-  /**
-   * Resize the vector field
-   */
-  resize(width: number, height: number): void {
-    this.width = width;
-    this.height = height;
   }
 
   /**

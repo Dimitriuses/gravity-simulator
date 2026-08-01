@@ -21,6 +21,13 @@
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
       z-index: 1000;
       pointer-events: auto;
+      /* The info panel is anchored to the bottom of the viewport and is capped
+         at 180px tall. Capping this one to the remaining space keeps the two
+         from overlapping in a short window — they used to collide below about
+         640px of viewport height. On a normal screen this is far larger than
+         the panel's natural ~500px, so nothing moves. */
+      max-height: calc(100vh - 210px);
+      overflow-y: auto;
     }
     #controls h3 {
       margin: 0 0 10px 0;
@@ -58,6 +65,10 @@
       z-index: 1000;
       pointer-events: auto;
       max-width: 250px;
+      /* Paired with the cap on #controls above: 180 + 10 + 10 + 10 = 210. */
+      max-height: 180px;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .particle-item {
       display: flex;
@@ -139,7 +150,7 @@
     <strong>Click</strong> to add objects<br>
     <strong>Drag</strong> to add velocity<br>
     Objects: <span id="objectCount">0</span>
-    <div id="particleList" style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
+    <div id="particleList" style="margin-top: 8px; max-height: 105px; overflow-y: auto;">
       <!-- Particle list will be populated here -->
     </div>
   </div>
