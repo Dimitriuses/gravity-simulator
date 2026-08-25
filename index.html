@@ -38,19 +38,43 @@
       overflow-y: auto;
     }
     #controls h3 {
-      margin: 0 0 10px 0;
+      margin: 0 0 6px 0;
       font-size: 16px;
     }
     #controls label {
       display: block;
-      margin: 8px 0;
+      margin: 5px 0;
       font-size: 12px;
+    }
+    /* Section headings. The panel is a single column and every control added to
+       it pushes the buttons at the bottom closer to the fold, so the rhythm is
+       deliberately tight — see the note in KNOWNISSUES.md. */
+    #controls .section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #ddd;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    #controls details.section > summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: bold;
+      list-style-position: inside;
+    }
+    #controls details.section[open] > summary {
+      margin-bottom: 4px;
+    }
+    /* Only the heading is bold; the controls inside inherit from .section
+       otherwise. */
+    #controls details.section label {
+      font-weight: normal;
     }
     #controls input[type="range"] {
       width: 150px;
     }
     #controls button {
-      margin-top: 10px;
+      margin-top: 6px;
       padding: 6px 12px;
       cursor: pointer;
       border: none;
@@ -114,9 +138,7 @@
       <select id="presetSelect" style="margin-left: 5px; padding: 2px; max-width: 150px;"></select>
     </label>
     <button id="reloadPresetBtn" style="width: 100%; margin-top: 0;">Reload Scene</button>
-    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-      <strong style="font-size: 13px;">New Bodies</strong>
-    </div>
+    <div class="section">New Bodies</div>
     <label>
       Mass: <span id="massValue">200</span>
       <input type="range" id="massSlider" min="100" max="5000" value="200" step="50">
@@ -125,9 +147,7 @@
       Vector Range: <span id="rangeValue">150</span>px
       <input type="range" id="rangeSlider" min="100" max="500" value="150" step="50">
     </label>
-    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-      <strong style="font-size: 13px;">Render Settings</strong>
-    </div>
+    <div class="section">Render Settings</div>
     <label>
       Object Size: <span id="objectSizeValue">1.0</span>x
       <input type="range" id="objectSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
@@ -136,9 +156,7 @@
       Arrow Size: <span id="arrowSizeValue">1.0</span>x
       <input type="range" id="arrowSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
     </label>
-    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-      <strong style="font-size: 13px;">Camera</strong>
-    </div>
+    <div class="section">Camera</div>
     <div style="font-size: 11px; margin: 5px 0; color: #666;">
       Zoom: <span id="zoomValue">100</span>%<br>
       <span style="font-size: 10px;">Scroll wheel to zoom<br>Middle-click or Ctrl+drag to pan</span>
@@ -153,8 +171,23 @@
     <label>
       <input type="checkbox" id="showTrails" checked> Show Trails
     </label>
-    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+    <!-- Collapsed by default: the defaults inside are the ones to want, and an
+         always-open section pushed Clear All and Pause below the fold in an
+         800px-tall window. Options are generated from INTEGRATOR_LABELS in
+         src/integrators.ts, for the same reason the scene list is — the schemes
+         are code, not markup. -->
+    <details class="section" id="integrationSection">
+      <summary>Integration</summary>
       <label style="font-size: 11px;">
+        Scheme:
+        <select id="integratorSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
+      </label>
+      <label>
+        <input type="checkbox" id="adaptiveStepping" checked> Adaptive Sub-steps
+      </label>
+    </details>
+    <div class="section" style="font-weight: normal;">
+      <label style="font-size: 11px; margin-top: 0;">
         Grid Mode:
         <select id="gridModeSelect" style="margin-left: 5px; padding: 2px;">
           <option value="adaptive">Adaptive (Dense near objects)</option>
@@ -169,7 +202,7 @@
   <div id="info">
     <strong>Click</strong> to add objects<br>
     <strong>Drag</strong> to add velocity<br>
-    Objects: <span id="objectCount">0</span>
+    Objects: <span id="objectCount">0</span> &nbsp; Sub-steps: <span id="subStepCount">1</span>
     <div id="particleList" style="margin-top: 8px; max-height: 105px; overflow-y: auto;">
       <!-- Particle list will be populated here -->
     </div>

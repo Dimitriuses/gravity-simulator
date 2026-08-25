@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "smoketest": "node tools/smoketest.mjs",
     "screenshots": "node tools/smoketest.mjs --shots",
-    "verify:install": "node tools/verify-install.mjs"
+    "verify:install": "node tools/verify-install.mjs",
+    "compare": "node tools/compare-integrators.mjs"
   },
   "keywords": [
     "gravity",

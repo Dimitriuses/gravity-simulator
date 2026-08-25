@@ -5,46 +5,65 @@ and either scheduled in [`ROADMAP.md`](ROADMAP.md) or deliberately accepted.
 
 ---
 
-## Accuracy collapses on tight orbits
+## Tight orbits are the least accurate, and there is a floor on how tight
 
-**The one that actually bites.** The integrator runs at a fixed step of
-`dt = 1`, so how well an orbit is resolved depends entirely on how many steps
-fit into one period — and period scales as r^1.5. A wide orbit gets thousands of
-steps; a tight one gets a handful.
+Resolution depends on how many steps fit into one orbital period, and period
+scales as r^1.5, so a fixed step of 1 gives a wide orbit thousands of points and
+a tight one a handful. Adaptive sub-stepping (roadmap M1, done) now subdivides
+the frame for whatever the closest pair needs, and velocity Verlet replaced
+symplectic Euler as the default scheme.
 
-Measured with a mass-5000 primary, a negligible satellite on a circular orbit at
-radius `r`, over 50 orbits:
+Mass-5000 primary, negligible satellite, 100 orbits. "Was" is the original
+fixed-step symplectic Euler; "now" is the shipping default, velocity Verlet with
+adaptive sub-stepping:
 
-| orbit radius | steps per orbit | radius stays within | phase error per orbit |
-|---:|---:|---|---:|
-| 400 | 1005 | 398.7 – 401.2 (0.6%) | 0.13° |
-| 200 | 355 | 198.2 – 201.8 (1.8%) | 0.07° |
-| 100 | 126 | 97.6 – 102.6 (5.0%) | −0.50° |
-| 50 | 44 | 47.0 – 54.0 (14%) | 2.52° |
-| 25 | 16 | 24.7 – 46.4 (86%) | −2.17° |
-| 12 | 5 | 17.6 – 327.6 (2583%) | 3.09° |
+| orbit radius | steps/orbit | was: radius within | now: radius within | sub-steps used |
+|---:|---:|---|---|---:|
+| 400 | 1005 | 398.8 - 401.3 (0.63%) | 400.0 - 400.0 (0.00%) | 1 |
+| 200 | 355 | 198.3 - 201.8 (1.77%) | 200.0 - 200.0 (0.02%) | 1 |
+| 100 | 126 | 97.6 - 102.6 (5.00%) | 100.0 - 100.1 (0.12%) | 1 |
+| 50 | 44 | 47.0 - 54.0 (14.18%) | 50.0 - 50.1 (0.11%) | 3 |
 
-Below roughly 50 world units of separation the orbit visibly deforms; below 25
-it is not a meaningful simulation at all. **Keep orbits above ~100 units for
-results you can trust.** Adaptive time-stepping is M1 in the roadmap.
+**A previous version of this table went further, to radius 25 and radius 12,
+and reported the orbit being destroyed outright. Those two rows were
+misleading.** A mass-5000 body has a radius of 34.2 units, so a satellite at
+r = 25 or r = 12 is *inside* the primary, where the force law softens
+deliberately. What those rows measured was mostly softening, not step size.
 
-## The integrator is first-order, but it is symplectic
+Since a body cannot orbit inside the primary and radius goes as `2*m^(1/3)`,
+the tightest *physical* circular orbit is about **25 steps per orbit** whatever
+the masses - the mass cancels. r = 50 above is close to that floor, and it is
+the worst case a real orbit can present.
 
-Worth stating precisely, because "Euler" usually implies worse than this is.
-`Particle.update()` advances velocity first and then uses the *new* velocity to
-advance position — semi-implicit (symplectic) Euler, not explicit Euler. The
-consequence is that energy oscillates within a bound rather than growing without
-limit, so orbits do not spiral apart.
+Remaining limitation: sub-stepping is **global**. One pair in a tight encounter
+subdivides the step for every body in the scene, including bodies that did not
+need it. Per-body time-stepping would confine the cost to the bodies that earn
+it. Capped at 64 sub-steps per frame; the UI reports the count, and at the cap
+the encounter is beyond what the frame can resolve.
 
-Measured on a circular orbit at r = 200 over **1000 orbits** (355,000 steps):
+## Which scheme bounds its error, and which does not
 
-- radius stayed within 198.2 – 201.8
-- specific orbital energy varied by 0.031%, ending 0.017% from where it started
-- the orbit precessed 65.7° in total — about 0.066° per orbit
+Symplectic Euler and velocity Verlet are both symplectic: energy oscillates
+within a bound rather than growing, so orbits do not spiral apart. RK4 is
+fourth-order and is **not** symplectic - over a long run its energy error
+accumulates in one direction. At r = 50 (44 steps per orbit), total energy
+excursion:
 
-So the error shows up as **phase**, not as energy: bodies end up in the right
-orbit at the wrong place along it. That is the expected first-order behaviour and
-it is why the tests assert momentum conservation but not energy conservation.
+| scheme | by 100 orbits | by 500 | by 1,000 |
+|---|---:|---:|---:|
+| Symplectic Euler | 2.0096% | 2.0096% | 2.0096% |
+| Velocity Verlet | 0.0097% | 0.0097% | 0.0097% |
+| Runge-Kutta 4 | 0.0997% | 0.5086% | 1.0444% |
+
+The symplectic pair reach their widest excursion early and stay there. RK4 keeps
+going, which is why it is offered for comparison rather than as the default, and
+why the tests assert momentum conservation rather than energy conservation -
+momentum is exact under all three, because every stage applies forces in equal
+and opposite pairs.
+
+Error that remains under every scheme shows up as **phase**: a body in the right
+orbit at the wrong place along it. Full tables in
+[`INTEGRATORS.md`](INTEGRATORS.md), regenerated by `npm run compare`.
 
 ## Bodies pass through each other
 
@@ -104,12 +123,16 @@ version needs its own interaction design rather than a polyfill.
 ## Very short windows scroll the control panel
 
 The control panel is capped at `calc(100vh - 210px)` and scrolls internally
-below that, so it can never collide with the bottom-left info panel. Its
-natural height is 598px including padding, so below about **808px** of viewport
-height you have to scroll inside the panel to reach the lower controls. That
-threshold moved up from 735px when the scene dropdown was added: every control
-added to the panel raises the height at which it starts scrolling, which is the
-cost of a single-column panel and is why the cap exists.
+below that, so it can never collide with the bottom-left info panel. Its natural
+height is 566px including padding, so below about **776px** of viewport height
+you have to scroll inside the panel to reach the lower controls.
+
+Every control added to the panel raises that threshold, which is the cost of a
+single column. The Integration section is a `<details>` collapsed by default for
+exactly this reason: expanded it adds 52px, which at an 800px window pushes
+Clear All and Pause past the bottom. Expanding it there means scrolling for
+them. The smoke test checks that the collapsed default keeps the buttons in
+view.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

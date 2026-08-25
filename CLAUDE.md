@@ -18,6 +18,7 @@ entry in it corresponds to a bug that actually shipped.
 | `npm run smoketest` | build first, then drive `dist/` in headless Chromium |
 | `npm run screenshots` | the smoke test again, writing `screenshots/*.png` |
 | `npm run verify:install` | would CI's npm accept `package-lock.json`? |
+| `npm run compare` | integrator accuracy tables; `-- --write` dumps a file to paste into `INTEGRATORS.md` |
 
 `npm run dev` uses esbuild, which strips types without checking them. **A green
 dev server proves nothing about whether the project builds** — this is exactly
@@ -36,13 +37,18 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   │     ├── Particle    state, F=ma, the force law, trail
   │     └── VectorField field sampling (uniform | adaptive) + OccupancyGrid
   ├── presets        starting scenes, as data plus orbit arithmetic
+  ├── integrators    Euler / Verlet / RK4, and the adaptive sub-step rule
+  │     └── forces      the softened force law; accelerations at any positions
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
-`Particle`, `VectorField`, `Vector2D` and `presets` are plain TypeScript, which
-is why 92 tests run under Node in about two seconds with no DOM and no canvas. Keep it that
+`Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
+plain TypeScript, which is why 113 tests run under Node in about three seconds
+with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
+sources through Vite's SSR loader, so the published accuracy tables measure the
+code the browser runs. Keep it that
 way: if a physics change seems to need p5, the abstraction is in the wrong place.
 
 `Camera` imports only the `ViewBounds` *type* from `VectorField`, so the
@@ -53,18 +59,56 @@ dependency is erased at compile time.
 ### Forces are cleared at the start of a step, never at the end
 
 `Particle.netForce` is what the renderer draws as the orange force arrow, and it
-reads it *after* `PhysicsEngine.step()` returns. `Particle.update()` must
-therefore leave `netForce` alone; clearing belongs in `resetForces()`, called at
-the top of `computeForces()`.
+reads it *after* `PhysicsEngine.step()` returns. Clearing belongs in
+`resetForces()`, called at the top of `computeForces()`.
 
-This was wrong originally — `update()` zeroed `netForce` on its way out, so the
+This was wrong originally - integration zeroed `netForce` on its way out, so the
 renderer's `netForce.magnitude() > 0` gate never once passed and the arrow
 advertised in the README and the on-page legend had never drawn a pixel.
-Pinned by `tests/PhysicsEngine.test.ts` → *"leaves netForce readable after a
+Pinned by `tests/PhysicsEngine.test.ts` -> *"leaves netForce readable after a
 step"*.
 
-The same ordering is what velocity Verlet will need when it lands (roadmap M1),
-since it caches accelerations across steps.
+### The integrator contract: accelerations are current on entry *and* on exit
+
+Every scheme in `integrators.ts` may assume each particle's `acceleration` is
+the acceleration at its current position when it is handed the particles, and
+must leave that true of the new positions when it returns. That is why each one
+ends with `field.refresh()`.
+
+Both halves earn their keep:
+
+- **On exit** it is what leaves `netForce` correct for the renderer, at the
+  positions actually drawn.
+- **On entry** it is what makes velocity Verlet cost one force evaluation per
+  step instead of two: the acceleration it computes to finish its velocity
+  update is the one the next step opens with. RK4's first stage reuses it too,
+  which is why it costs four evaluations rather than five.
+
+`PhysicsEngine` keeps a private `forcesDirty` flag and refreshes before the
+first sub-step, because adding or removing a body invalidates the entry
+condition. `tests/integrators.test.ts` counts evaluations through a wrapping
+`ForceField`, so a scheme that quietly starts recomputing what it was given
+fails rather than merely getting slower.
+
+### There is one force law, in `forces.ts`
+
+`Particle.attractionTo` delegates to `gravitationalForce`, and
+`accelerationsAt` uses the same function for trial configurations. RK4 has to
+evaluate the field at positions no body occupies, which is what forced the
+split; the rule that came with it is that softening, and the contact distance it
+clamps to, live in exactly one place. Two copies of a softened inverse-square
+law is two things to keep in step.
+
+### Trails record frames, not sub-steps
+
+`Particle.recordTrail()` is called once per `PhysicsEngine.step()`, after the
+sub-step loop. Recording inside the loop would drain a trail in a fraction of a
+second during a close encounter, and its length would visibly change as the
+sub-step count moved. Pinned by *"records one trail point per frame however many
+sub-steps it took"*.
+
+Trail *length* is a per-scene decision (`Preset.trailLength`), and long trails
+are only affordable because of the banding described below.
 
 ### p5's colour mode is RGB, except inside the vector-field pass
 
@@ -191,7 +235,11 @@ What belongs where:
 
 - **Unit tests** — anything expressible without a browser: the force law,
   integration, field sampling, camera maths, the occupancy grid, and whether a
-  preset scene actually orbits.
+  preset scene actually orbits. An integrator gets three kinds of check: the
+  closed form for a constant field, its convergence order (halve the step, watch
+  the error fall by 2, 4 or 16), and a long run to see whether its energy error
+  is bounded. Order is the one that catches a scheme that looks plausible and is
+  first-order by accident.
 - **`tools/smoketest.mjs`** — anything that only exists once pixels are on a
   canvas. It serves the real `dist/` over HTTP, drives the app with real mouse
   and wheel events, and **judges colour by sampling the canvas backing store**,

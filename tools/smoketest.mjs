@@ -493,6 +493,81 @@ try {
     `${presetCount} bodies -> deleted one -> ${reloaded}`
   );
 
+  // ── Integration controls ───────────────────────────────────────────────────
+  // The schemes themselves are proved in tests/integrators.test.ts, against
+  // convergence orders and 1,000-orbit energy bounds. What only exists in the
+  // browser is the wiring: that the dropdown is populated from TypeScript, that
+  // switching scheme mid-flight keeps the simulation running, and that the
+  // sub-step readout tracks what the engine actually did.
+  const schemes = await page.evaluate(() => ({
+    options: Array.from(document.querySelectorAll('#integratorSelect option')).map((o) => o.value),
+    selected: document.getElementById('integratorSelect').value,
+    adaptive: document.getElementById('adaptiveStepping').checked,
+    collapsed: !document.getElementById('integrationSection').open,
+  }));
+  check(
+    'the scheme dropdown is populated and defaults to velocity Verlet',
+    schemes.options.length === 3 && schemes.selected === 'verlet' && schemes.adaptive,
+    `options=[${schemes.options.join(', ')}], selected=${schemes.selected}, adaptive=${schemes.adaptive}`
+  );
+
+  // Collapsed by default on purpose: open, the section is tall enough to push
+  // Clear All and Pause past the bottom of an 800px window.
+  const buttonsVisible = await page.evaluate(() => {
+    const panel = document.getElementById('controls').getBoundingClientRect();
+    const pause = document.getElementById('pauseBtn').getBoundingClientRect();
+    return pause.bottom <= panel.bottom + 1;
+  });
+  check(
+    'the integration section starts collapsed, keeping the buttons in view',
+    schemes.collapsed && buttonsVisible,
+    `collapsed=${schemes.collapsed}, pause button fully visible=${buttonsVisible}`
+  );
+
+  await page.click('#integrationSection > summary');
+  await page.waitForTimeout(200);
+
+  await page.selectOption('#presetSelect', 'star-and-planets');
+  await page.waitForTimeout(800);
+  for (const scheme of schemes.options) {
+    await page.selectOption('#integratorSelect', scheme);
+    await page.waitForTimeout(400);
+    const a = await positionsWhile(400);
+    const b = await positionsWhile(400);
+    check(`the simulation keeps running under ${scheme}`, a !== b, `frame hashes ${a} / ${b}`);
+  }
+  await page.selectOption('#integratorSelect', 'verlet');
+  await page.waitForTimeout(300);
+
+  // A well-resolved scene must cost nothing: adaptive stepping is only worth
+  // having if it stays out of the way until it is needed.
+  const restingSubSteps = await page.evaluate(
+    () => document.getElementById('subStepCount').textContent
+  );
+  check(
+    'a well-resolved scene takes a single sub-step',
+    restingSubSteps === '1',
+    `sub-steps=${restingSubSteps}`
+  );
+
+  // Drop a second heavy body onto the primary: a pair at contact distance is
+  // the tightest thing the interface can make, and it should ask for more.
+  await page.locator('#massSlider').fill('5000');
+  await page.waitForTimeout(60);
+  await page.mouse.click(VIEWPORT.width / 2 + 12, VIEWPORT.height / 2);
+  await page.waitForTimeout(900);
+  const closeSubSteps = await page.evaluate(
+    () => document.getElementById('subStepCount').textContent
+  );
+  check(
+    'a contact-distance pair asks for sub-steps',
+    Number(closeSubSteps) > 1,
+    `sub-steps=${closeSubSteps}`
+  );
+
+  await page.locator('#massSlider').fill('200');
+  await page.waitForTimeout(60);
+
   // ── Panel layout in a short window ─────────────────────────────────────────
   // #controls is capped at calc(100vh - 210px) so it can never grow down into
   // the bottom-left info panel. The cap applies to the content box, so under

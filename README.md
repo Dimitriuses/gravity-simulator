@@ -26,6 +26,9 @@ inferred from how things move.
 
 - **N-body simulation** — every body attracts every other, `F = G·m₁·m₂/r²`,
   softened at contact distance so a close pass stays finite.
+- **Three integration schemes**, switchable while running — velocity Verlet
+  (the default), symplectic Euler and RK4 — with adaptive sub-stepping that
+  slices a frame as finely as the closest pair needs.
 - **Five starting scenes** — a circular binary, a star with two planets, the
   figure-eight three-body choreography, an eccentric comet and a hyperbolic
   slingshot. Every velocity is derived from the orbit equation for the
@@ -69,6 +72,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Clear All** / **Pause** | Empty the scene / freeze it |
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
 | **Reload Scene** | Rebuild the current scene from scratch |
+| **Integration** section | Switch scheme, or turn adaptive sub-stepping off |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Grid Mode* dropdown switches sampling mode. Bodies you add yourself inherit
@@ -87,19 +91,29 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   │     ├── Particle       state, F=ma, force law, trail
   │     └── VectorField    field sampling (uniform | adaptive) + OccupancyGrid
   ├── presets           starting scenes and the orbit arithmetic behind them
+  ├── integrators       Euler / Verlet / RK4 + the adaptive step rule
+  │     └── forces         the softened force law, and accelerations at any positions
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
 
 Two details worth calling out:
 
-**Integration is semi-implicit (symplectic) Euler** — velocity is advanced
-first, then position using the *new* velocity. That makes it symplectic, so
-energy oscillates within a bound rather than growing: over 1000 orbits at radius
-200, orbital energy moved 0.017% and the radius stayed within 198.2–201.8. The
-error appears as phase (~0.066°/orbit), not as a spiral. What it does *not*
-survive is a tight orbit at a fixed step — see
-[Known limitations](#known-limitations).
+**Three integrators, and the step adapts.** The default is velocity Verlet:
+second-order, symplectic, and — because the acceleration it computes to finish
+one step is the one the next step opens with — **one force evaluation per step,
+the same as the first-order scheme it replaced**. Symplectic Euler and RK4 are
+selectable beside it, RK4 deliberately so: it is fourth-order and *not*
+symplectic, so its energy error accumulates in one direction where the other
+two oscillate within a bound. Measured at 44 steps per orbit, RK4's energy
+excursion grows 0.10% → 0.51% → 1.04% over 100, 500 and 1,000 orbits while
+Verlet's sits at 0.0097% and stays there.
+
+Each frame is then sliced into as many sub-steps as the closest interacting pair
+needs, from its dynamical and crossing timescales. A wide orbit asks for one, so
+the common case costs nothing; a tight pass gets sub-stepped instead of silently
+degrading. [`INTEGRATORS.md`](INTEGRATORS.md) has the full comparison —
+`npm run compare` regenerates it.
 
 **Preset scenes are arithmetic, not coordinates.** A scene is initial
 conditions, and initial conditions typed in by hand do not orbit: the original
@@ -142,23 +156,28 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 92 unit tests, headless, ~2s
+npm test            # 113 unit tests, headless, ~3s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
+npm run compare     # integrator accuracy tables -> INTEGRATORS.md
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
-its softening, integration and momentum conservation, camera transforms, both
-field sampling modes, and every preset scene run forward for thousands of steps
-— under Node with no DOM.
+its softening, camera transforms, both field sampling modes, and every preset
+scene run forward for thousands of steps — under Node with no DOM. The
+integrators get the treatment they need: each is checked against the closed form
+for a constant field, then against its own convergence order by halving the step
+and watching the error fall by 2, 4 and 16, and finally over 500 orbits to
+confirm which schemes bound their energy error and which does not.
 
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 33 properties, including that the background is the intended navy, that
+asserts 40 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that the field still draws after panning far from the
-origin, that every scene in the dropdown loads a live configuration, and that
+origin, that every scene in the dropdown loads a live configuration, that
+switching integration scheme mid-flight keeps the simulation running, and that
 the two left-hand panels stay clear of each other in a short window. Every one
 of those corresponds to a defect that had shipped.
 
@@ -180,10 +199,13 @@ attempt 1.
 
 Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
-- **Tight orbits are inaccurate.** The step is fixed at `dt = 1`, and orbital
-  period scales as r^1.5, so resolution collapses as orbits shrink: 1005 steps
-  per orbit at radius 400, 44 at radius 50, 5 at radius 12. Keep separations
-  above ~100 units for results you can trust.
+- **Tight orbits are less accurate**, though far less so than they were. A
+  fixed step resolves an orbit at radius 400 with 1,005 points and one at
+  radius 50 with 44; adaptive sub-stepping now subdivides the tight ones, and
+  the radius excursion at r = 50 falls from 14.2% (the original fixed-step
+  Euler) to 0.11%. There is a floor on how badly a *physical* orbit can be
+  resolved — about 25 steps per orbit, since a body cannot orbit inside the
+  primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
 - **No collisions.** Bodies pass through one another; gravity is softened at
   contact rather than resolved.
 - **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
@@ -199,8 +221,7 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers adaptive time-stepping and
-velocity Verlet, collisions and merging, a Barnes–Hut quadtree, scenes encoded
+Active development. [`ROADMAP.md`](ROADMAP.md) covers collisions and merging, a Barnes–Hut quadtree, scenes encoded
 in the URL so a configuration can be linked, and field readability work (scale
 bar, equipotential contours, streamlines) — plus what is deliberately deferred,
 and why.

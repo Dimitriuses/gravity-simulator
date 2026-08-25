@@ -11,14 +11,16 @@ import {
 } from '../src/presets';
 import { PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
+import { Vector2D } from '../src/Vector2D';
 
 /**
  * A preset is a claim about behaviour — "these two bodies orbit each other" —
  * and the only way to check it is to run it. Placing bodies by eye produces
  * scenes that quietly fly apart: the original hard-coded opening scene gave its
  * two bodies twice their circular speed, which is above the pair's escape
- * velocity, and its separation grew from 400 to 14,735 units over 20,000 steps.
- * Every scene below is run through the real engine for thousands of steps.
+ * velocity, and its separation grew from 400 to 14,735 units over 20,000 steps
+ * (measured under the fixed-step Euler scheme of the time). Every scene below is
+ * run through the real engine for thousands of steps.
  */
 
 /** Run a preset and hand back the engine. */
@@ -83,7 +85,7 @@ describe('preset catalogue', () => {
     expect(first[0]).toBeInstanceOf(Particle);
     expect(first[0]).not.toBe(second[0]);
 
-    first[0].update();
+    first[0].position = first[0].position.add(new Vector2D(1000, 0));
     expect(second[0].position.x).toBe(scene.bodies[0].x);
   });
 
@@ -123,7 +125,9 @@ describe('binary', () => {
       max = Math.max(max, d);
     });
 
-    // ~4 orbits; measured 399.8 – 400.3 over 60,000 steps.
+    // ~4 orbits. Measured 400.0 – 400.0 over 60,000 steps under the default
+    // scheme; it was 399.8 – 400.3 under the fixed-step Euler this replaced.
+    // The bounds stay loose so the test tracks the scene, not the integrator.
     expect(min).toBeGreaterThan(395);
     expect(max).toBeLessThan(405);
   });
@@ -152,9 +156,9 @@ describe('star and planets', () => {
       outerMax = Math.max(outerMax, outer);
     });
 
-    // ~56 orbits of the inner satellite. Measured 193.1 – 204.5 and
-    // 396.8 – 413.2; the wobble is the fixed step plus the satellites'
-    // mutual pull, not an unstable scene.
+    // ~56 orbits of the inner satellite. Measured 193.6 – 204.1 and
+    // 396.9 – 413.1; the wobble is the satellites pulling on each other, not
+    // the integrator — it barely moved when the scheme changed.
     expect(innerMin).toBeGreaterThan(180);
     expect(innerMax).toBeLessThan(220);
     expect(outerMin).toBeGreaterThan(370);
@@ -173,7 +177,8 @@ describe('figure eight', () => {
     engine.particles.forEach((particle, index) => {
       const start = scene.bodies[index];
       const drift = Math.hypot(particle.position.x - start.x, particle.position.y - start.y);
-      // One period is ~2,500 steps; the choreography closes to within a few units.
+      // One period is ~2,500 steps; the choreography closes to within 0.37
+      // units of where it started (it was a few units under fixed-step Euler).
       expect(drift).toBeLessThan(10);
     });
   });
@@ -194,9 +199,9 @@ describe('figure eight', () => {
       }
     });
 
-    // Measured over five periods: nothing leaves 271 units, and no pair closes
-    // to within 172 — comfortably outside the range where the fixed step
-    // destroys an orbit (KNOWNISSUES.md).
+    // Measured over five periods: nothing leaves 270 units, and no pair closes
+    // to within 173 — comfortably outside the separations where step size
+    // starts to matter (INTEGRATORS.md).
     expect(furthest).toBeLessThan(320);
     expect(closestPair).toBeGreaterThan(100);
   });
@@ -215,9 +220,10 @@ describe('comet', () => {
       furthest = Math.max(furthest, r);
     });
 
-    // Measured over 20 passes: perihelion 181 every time, aphelion 900.
-    // Symplectic Euler preserves the shape of the orbit; what it loses is
-    // phase, which here shows up as slow precession rather than decay.
+    // Measured over 20 passes: perihelion 180.9, aphelion 900.0, unchanged
+    // pass to pass. The symplectic schemes preserve the shape of an orbit;
+    // what they lose is phase, which here shows up as slow precession rather
+    // than decay.
     expect(closest).toBeGreaterThan(175);
     expect(closest).toBeLessThan(190);
     expect(furthest).toBeGreaterThan(890);
@@ -248,7 +254,7 @@ describe('slingshot', () => {
     });
 
     // Aimed straight at the primary this is ~8 units, deep inside the softened
-    // force where nothing is meaningful. Measured closest approach: 186.
+    // force where nothing is meaningful. Measured closest approach: 186.4.
     expect(closest).toBeGreaterThan(150);
   });
 

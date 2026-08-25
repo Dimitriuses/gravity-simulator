@@ -4,6 +4,7 @@ import { Renderer } from './Renderer';
 import { Particle } from './Particle';
 import { Camera } from './Camera';
 import { DEFAULT_PRESET_ID, PRESETS, getPreset, presetParticles } from './presets';
+import { INTEGRATOR_LABELS, IntegratorName } from './integrators';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -56,6 +57,9 @@ const sketch = (p: p5) => {
   const gridModeSelect = el<HTMLSelectElement>('gridModeSelect');
   const presetSelect = el<HTMLSelectElement>('presetSelect');
   const reloadPresetBtn = el('reloadPresetBtn');
+  const integratorSelect = el<HTMLSelectElement>('integratorSelect');
+  const adaptiveSteppingCheckbox = el<HTMLInputElement>('adaptiveStepping');
+  const subStepCount = el('subStepCount');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
   const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
   const showTrailsCheckbox = el<HTMLInputElement>('showTrails');
@@ -75,9 +79,10 @@ const sketch = (p: p5) => {
     renderer = new Renderer(p, engine);
     camera = new Camera(p);
 
-    // The scene dropdown is the one control whose options come from TypeScript,
-    // so it has to be filled in before anything reads its value.
+    // These two dropdowns are the controls whose options come from TypeScript,
+    // so they have to be filled in before anything reads their values.
     populatePresetOptions();
+    populateIntegratorOptions();
 
     setupUI();
     // Read the simulation's starting values out of the markup rather than
@@ -101,6 +106,8 @@ const sketch = (p: p5) => {
       engine.step();
     }
     engine.updateField(view);
+
+    updateSubStepDisplay();
 
     camera.apply();
     renderer.draw();
@@ -229,6 +236,8 @@ const sketch = (p: p5) => {
     arrowSizeValue.textContent = renderer.arrowSizeMultiplier.toFixed(1);
 
     engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
+    engine.integrator = integratorSelect.value as IntegratorName;
+    engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
     loadPreset(presetSelect.value);
     renderer.showVectorField = showVectorsCheckbox.checked;
     renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
@@ -287,6 +296,15 @@ const sketch = (p: p5) => {
       loadPreset(presetSelect.value);
     });
 
+    integratorSelect.addEventListener('change', () => {
+      engine.integrator = integratorSelect.value as IntegratorName;
+    });
+
+    adaptiveSteppingCheckbox.addEventListener('change', () => {
+      engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
+      updateSubStepDisplay();
+    });
+
     // `change` does not fire when the same option is picked again, so replaying
     // the current scene after pushing it around needs its own button.
     reloadPresetBtn.addEventListener('click', () => {
@@ -307,6 +325,23 @@ const sketch = (p: p5) => {
       isPaused = !isPaused;
       pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
     });
+  }
+
+  /**
+   * Fill the scheme dropdown from `INTEGRATOR_LABELS`, and select whichever one
+   * the engine defaults to — the engine owns that decision, not the markup.
+   */
+  function populateIntegratorOptions(): void {
+    integratorSelect.replaceChildren();
+
+    for (const scheme of INTEGRATOR_LABELS) {
+      const option = document.createElement('option');
+      option.value = scheme.id;
+      option.textContent = scheme.label;
+      integratorSelect.append(option);
+    }
+
+    integratorSelect.value = engine.integrator;
   }
 
   /**
@@ -383,6 +418,19 @@ const sketch = (p: p5) => {
       item.append(info, deleteBtn);
       particleList.append(item);
     });
+  }
+
+  /**
+   * Show how finely the last frame had to be sliced.
+   *
+   * Worth surfacing rather than hiding: it is the difference between "this
+   * close pass is being resolved" and "the frame rate just dropped and you
+   * cannot see why", and at the cap it is the honest signal that the encounter
+   * is beyond what a frame can resolve.
+   */
+  function updateSubStepDisplay(): void {
+    const label = isPaused ? '—' : engine.lastSubSteps.toString();
+    if (subStepCount.textContent !== label) subStepCount.textContent = label;
   }
 
   function updateZoomDisplay(): void {

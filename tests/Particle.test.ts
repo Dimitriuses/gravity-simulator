@@ -70,23 +70,28 @@ describe('Particle', () => {
     });
   });
 
-  describe('integration', () => {
-    it('applies acceleration to velocity and velocity to position', () => {
-      const p = new Particle(0, 0, 10, 1, 0);
-      p.applyForce(new Vector2D(10, 0)); // a = 1
-      p.update(1);
-
-      expect(p.velocity.x).toBeCloseTo(2, 12); // 1 + 1
-      expect(p.position.x).toBeCloseTo(2, 12); // 0 + 2
-    });
-
+  describe('trail', () => {
+    // Integration itself lives in integrators.ts; a particle only records where
+    // it has been.
     it('records a trail and caps its length', () => {
       const p = new Particle(0, 0, 10, 1, 0);
-      for (let i = 0; i < p.maxTrailLength + 25; i++) p.update(1);
+
+      for (let i = 0; i < p.maxTrailLength + 25; i++) {
+        p.position = p.position.add(new Vector2D(1, 0));
+        p.recordTrail();
+      }
 
       expect(p.trail.length).toBe(p.maxTrailLength);
       // The cap drops the oldest points, so the newest position is last.
       expect(p.trail[p.trail.length - 1].x).toBeCloseTo(p.position.x, 12);
+    });
+
+    it('stores copies, so later movement does not rewrite history', () => {
+      const p = new Particle(0, 0, 10);
+      p.recordTrail();
+      p.position = p.position.add(new Vector2D(50, 0));
+
+      expect(p.trail[0].x).toBe(0);
     });
   });
 
@@ -100,13 +105,13 @@ describe('Particle', () => {
       expect(p.acceleration.magnitude()).toBe(0);
     });
 
-    // The renderer reads netForce after the step completes. If update() also
-    // cleared it, there would never be anything to draw — see
-    // PhysicsEngine.test.ts.
-    it('is not performed by update()', () => {
+    // The renderer reads netForce after the step completes. Clearing it anywhere
+    // other than the top of computeForces() leaves the arrows with nothing to
+    // draw — see PhysicsEngine.test.ts.
+    it('is not performed by recording a trail', () => {
       const p = new Particle(0, 0, 100);
       p.applyForce(new Vector2D(10, 0));
-      p.update(1);
+      p.recordTrail();
 
       expect(p.netForce.magnitude()).toBeGreaterThan(0);
     });

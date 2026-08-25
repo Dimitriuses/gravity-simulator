@@ -129,18 +129,19 @@ export const FIGURE_EIGHT_PERIOD_STEPS = EIGHT_PERIOD_UNITS * EIGHT_TIME;
 // ─── Comet ───────────────────────────────────────────────────────────────────
 // An eccentricity-0.67 orbit: slow and distant at aphelion, whipping through
 // perihelion at five times the speed. Perihelion is kept at 180 units, well
-// clear of the range where the fixed step starts destroying orbits; measured
-// over 20 passes the orbit holds its shape exactly — 181 units every time.
+// clear of the separations where step size starts to bite; measured over 20
+// passes the orbit holds its shape — 180.9 units every time, and it never asks
+// for a sub-step.
 const COMET_MASS = 20;
 const COMET_APHELION = 900;
 const COMET_PERIHELION = 180;
 
 // ─── Slingshot ───────────────────────────────────────────────────────────────
 // A hyperbolic flyby. The impact parameter is what matters: aimed straight at
-// the primary the probe passes within a few units, where the softened force and
-// the fixed step stop meaning anything. Offset by 350 it turns through ~90° at
-// a closest approach of 186 units, comfortably inside the range the integrator
-// resolves (see KNOWNISSUES.md).
+// the primary the probe passes within a few units, where the softened force
+// stops meaning anything. Offset by 350 it turns through 90° at a closest
+// approach of 186.4 units, comfortably inside what the integrator resolves
+// (see INTEGRATORS.md).
 const PROBE_MASS = 20;
 
 export const PRESETS: Preset[] = [

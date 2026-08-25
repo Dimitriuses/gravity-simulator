@@ -31,3 +31,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 .cache/
+
+# `npm run compare -- --write` scratch output; the kept copy is INTEGRATORS.md
+INTEGRATORS.generated.md
