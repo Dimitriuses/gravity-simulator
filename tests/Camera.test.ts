@@ -198,4 +198,27 @@ describe('Camera', () => {
     expect(camera).toMatchObject({ x: 0, y: 0, zoom: 1 });
     expect(camera.getZoomPercent()).toBe(100);
   });
+
+  describe('resetCameraTo', () => {
+    it('recentres at the requested zoom', () => {
+      const camera = makeCamera();
+      camera.x = 500;
+      camera.y = -200;
+
+      camera.resetCameraTo(0.5);
+
+      expect(camera).toMatchObject({ x: 0, y: 0, zoom: 0.5 });
+      expect(camera.getZoomPercent()).toBe(50);
+    });
+
+    it('clamps to the zoom range, so a preset cannot ask for the impossible', () => {
+      const camera = makeCamera();
+
+      camera.resetCameraTo(50);
+      expect(camera.zoom).toBe(camera.maxZoom);
+
+      camera.resetCameraTo(0.0001);
+      expect(camera.zoom).toBe(camera.minZoom);
+    });
+  });
 });

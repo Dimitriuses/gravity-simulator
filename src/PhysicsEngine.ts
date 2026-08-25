@@ -2,12 +2,20 @@ import { Particle } from './Particle';
 import { VectorField, ViewBounds } from './VectorField';
 
 /**
+ * Gravitational constant. Not Newton's — a tuning value picked so that the
+ * masses and distances the sliders offer produce forces the field can draw.
+ * Exported because `presets.ts` derives its orbital velocities from it: a
+ * preset built against a different G is simply a scene that flies apart.
+ */
+export const SIMULATION_G = 0.5;
+
+/**
  * Physics engine that handles gravity calculations and updates
  */
 export class PhysicsEngine {
   particles: Particle[] = [];
   vectorField: VectorField;
-  G: number = 0.5; // Gravitational constant
+  G: number = SIMULATION_G;
 
   constructor(baseGridSize: number = 30) {
     // Smaller grid size (30) for denser vector field visualization

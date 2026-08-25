@@ -23,6 +23,13 @@ const COLOR_BACKGROUND = [10, 15, 30] as const;
 const COLOR_FORCE_ARROW = [255, 136, 0] as const; // #ff8800
 const COLOR_VELOCITY_ARROW = [0, 255, 255] as const; // #00ffff
 const COLOR_TRAIL = [200, 200, 255] as const;
+
+/**
+ * Number of alpha steps a trail fades through. Each band is one polyline, so
+ * this is also the number of stroke-state changes per trail per frame — the
+ * cost that used to scale with trail length.
+ */
+const TRAIL_BANDS = 16;
 const COLOR_PARTICLE_GLOW = [100, 150, 255] as const;
 const COLOR_PARTICLE_BODY = [150, 200, 255] as const;
 const COLOR_PARTICLE_EDGE = [200, 220, 255] as const;
@@ -155,7 +162,15 @@ export class Renderer {
   }
 
   /**
-   * Draw particle trails
+   * Draw particle trails, fading towards the oldest end.
+   *
+   * Drawn as `TRAIL_BANDS` polylines per particle rather than one `line()` per
+   * point pair. A per-segment fade needs a `stroke()` before every segment, and
+   * that state change is the whole cost: at the figure-eight preset's
+   * period-length trail it was 7,800 stroke-and-line pairs a frame and pinned
+   * the app at 30fps. Banding makes it 48 shape draws for the same picture —
+   * the fade is 16 steps instead of 2,600, which is not visible on a trail that
+   * is fading out anyway.
    */
   private drawTrails(): void {
     this.p.push();
@@ -163,16 +178,23 @@ export class Renderer {
     this.p.strokeWeight(1);
 
     for (const particle of this.engine.particles) {
-      if (particle.trail.length < 2) continue;
+      const trail = particle.trail;
+      if (trail.length < 2) continue;
 
-      for (let i = 0; i < particle.trail.length - 1; i++) {
-        // Fade towards the oldest end of the trail.
-        const alpha = this.p.map(i, 0, particle.trail.length - 1, 0, 255);
+      const bandSize = Math.max(1, Math.ceil((trail.length - 1) / TRAIL_BANDS));
+
+      for (let start = 0; start < trail.length - 1; start += bandSize) {
+        // The band's alpha is taken from its midpoint, so the fade is centred
+        // on the same curve the per-segment version drew.
+        const end = Math.min(start + bandSize, trail.length - 1);
+        const alpha = this.p.map((start + end) / 2, 0, trail.length - 1, 0, 255);
         this.p.stroke(...COLOR_TRAIL, alpha);
 
-        const from = particle.trail[i];
-        const to = particle.trail[i + 1];
-        this.p.line(from.x, from.y, to.x, to.y);
+        this.p.beginShape();
+        for (let i = start; i <= end; i++) {
+          this.p.vertex(trail[i].x, trail[i].y);
+        }
+        this.p.endShape();
       }
     }
 

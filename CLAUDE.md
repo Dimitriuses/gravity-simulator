@@ -35,13 +35,14 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── PhysicsEngine  particle list, pairwise forces, integration
   │     ├── Particle    state, F=ma, the force law, trail
   │     └── VectorField field sampling (uniform | adaptive) + OccupancyGrid
+  ├── presets        starting scenes, as data plus orbit arithmetic
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
-`Particle`, `VectorField` and `Vector2D` are plain TypeScript, which is why 73
-tests run under Node in about a second with no DOM and no canvas. Keep it that
+`Particle`, `VectorField`, `Vector2D` and `presets` are plain TypeScript, which
+is why 92 tests run under Node in about two seconds with no DOM and no canvas. Keep it that
 way: if a physics change seems to need p5, the abstraction is in the wrong place.
 
 `Camera` imports only the `ViewBounds` *type* from `VectorField`, so the
@@ -118,6 +119,37 @@ against the naive implementation over thousands of queries, including a
 clustered distribution, because uniform random points rarely collide and would
 let a broken grid pass.
 
+### Preset velocities come from an orbit equation, never from a guess
+
+`src/presets.ts` derives every velocity — `circularOrbitSpeed`,
+`binaryOrbitSpeed`, `apoapsisSpeed`, and the rescaled figure-eight constants —
+from `SIMULATION_G`, exported by `PhysicsEngine` for exactly this reason. A
+scene built against a different G is a scene that flies apart.
+
+The opening scene used to be two hand-placed bodies at `vy = ±0.5`. The circular
+speed for that pair is 0.25 and their mutual escape velocity is 0.354 each, so
+the "mutual orbit" the README advertised was a hyperbolic escape: separation grew
+from 400 units to 14,735 over 20,000 steps. Nothing errored, and at the ten-second
+timescale of a glance it looks like an orbit.
+
+Pinned by `tests/presets.test.ts`, which runs every scene through the real
+engine for thousands of steps and asserts what it claims to be — separation
+bounds for the binary, orbital radii for the satellites, a closed curve for the
+figure eight, perihelion and aphelion for the comet. Add a preset, add its test.
+
+### Trails are drawn in bands, not one `line()` per point
+
+A trail fading along its length needs a `stroke()` before every segment, and
+that state change — not the geometry — is the cost. `Renderer.drawTrails()`
+splits each trail into `TRAIL_BANDS` (16) polylines and sets the stroke once per
+band.
+
+With one call per segment, the figure-eight preset's period-length trail (2,600
+points × 3 bodies) put the app at **30fps**; banded, the same picture holds
+59.9fps. That is what makes a trail long enough to show a closed orbit
+affordable at all. If you lengthen a preset's trail, measure the frame rate
+rather than assuming.
+
 ### UI state is read from the DOM at startup, never duplicated in TypeScript
 
 `syncStateFromControls()` pushes every control's markup value into the
@@ -128,6 +160,13 @@ Before this existed the two drifted: the mass slider read 200 while new bodies
 were created with mass 50, and the range slider read 150 while the field used
 300. If you add a control, add it to `syncStateFromControls()` as well as to
 `setupUI()`.
+
+The one exception is the **scene dropdown**, whose `<option>`s are generated from
+`PRESETS` by `populatePresetOptions()`. The rule is one source of truth, not
+"the markup wins": a scene is initial conditions plus arithmetic, so listing it
+in HTML would be the duplication the rule exists to prevent. `syncStateFromControls()`
+still reads the selection and loads it, which is how the page gets its opening
+scene — there is no hard-coded startup configuration any more.
 
 ### Native DOM listeners, not p5's `select().input()`
 
@@ -151,7 +190,8 @@ canvas. `Camera` is tested with a five-property stub in place of p5.
 What belongs where:
 
 - **Unit tests** — anything expressible without a browser: the force law,
-  integration, field sampling, camera maths, the occupancy grid.
+  integration, field sampling, camera maths, the occupancy grid, and whether a
+  preset scene actually orbits.
 - **`tools/smoketest.mjs`** — anything that only exists once pixels are on a
   canvas. It serves the real `dist/` over HTTP, drives the app with real mouse
   and wheel events, and **judges colour by sampling the canvas backing store**,

@@ -105,8 +105,11 @@ version needs its own interaction design rather than a polyfill.
 
 The control panel is capped at `calc(100vh - 210px)` and scrolls internally
 below that, so it can never collide with the bottom-left info panel. Its
-natural height is 524px including padding, so below about **735px** of viewport
-height you have to scroll inside the panel to reach the lower controls.
+natural height is 598px including padding, so below about **808px** of viewport
+height you have to scroll inside the panel to reach the lower controls. That
+threshold moved up from 735px when the scene dropdown was added: every control
+added to the panel raises the height at which it starts scrolling, which is the
+cost of a single-column panel and is why the cap exists.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

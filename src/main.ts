@@ -3,6 +3,7 @@ import { PhysicsEngine } from './PhysicsEngine';
 import { Renderer } from './Renderer';
 import { Particle } from './Particle';
 import { Camera } from './Camera';
+import { DEFAULT_PRESET_ID, PRESETS, getPreset, presetParticles } from './presets';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -34,6 +35,12 @@ const sketch = (p: p5) => {
   let velocityStart: { x: number; y: number } | null = null;
   let selectedMass = 200;
   let isPanning = false;
+  /**
+   * Trail length for bodies the user adds, kept in step with the loaded scene
+   * so a body dropped into the figure-eight draws the same length of trail as
+   * the three already there.
+   */
+  let sceneTrailLength = new Particle(0, 0).maxTrailLength;
 
   // HTML controls
   const massSlider = el<HTMLInputElement>('massSlider');
@@ -47,6 +54,8 @@ const sketch = (p: p5) => {
   const zoomValue = el('zoomValue');
   const resetCameraBtn = el('resetCameraBtn');
   const gridModeSelect = el<HTMLSelectElement>('gridModeSelect');
+  const presetSelect = el<HTMLSelectElement>('presetSelect');
+  const reloadPresetBtn = el('reloadPresetBtn');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
   const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
   const showTrailsCheckbox = el<HTMLInputElement>('showTrails');
@@ -66,14 +75,15 @@ const sketch = (p: p5) => {
     renderer = new Renderer(p, engine);
     camera = new Camera(p);
 
+    // The scene dropdown is the one control whose options come from TypeScript,
+    // so it has to be filled in before anything reads its value.
+    populatePresetOptions();
+
     setupUI();
     // Read the simulation's starting values out of the markup rather than
     // duplicating them here, so the controls and the simulation cannot disagree.
+    // That includes the opening scene, which is whichever preset is selected.
     syncStateFromControls();
-
-    // Two equal bodies in a mutual orbit, straddling the world origin.
-    engine.addParticle(new Particle(-200, 0, 100, 0, 0.5));
-    engine.addParticle(new Particle(200, 0, 100, 0, -0.5));
 
     updateObjectCount();
     updateZoomDisplay();
@@ -149,15 +159,15 @@ const sketch = (p: p5) => {
     }
 
     const worldEnd = camera.screenToWorld(p.mouseX, p.mouseY);
-    engine.addParticle(
-      new Particle(
-        velocityStart.x,
-        velocityStart.y,
-        selectedMass,
-        (worldEnd.x - velocityStart.x) * DRAG_TO_VELOCITY,
-        (worldEnd.y - velocityStart.y) * DRAG_TO_VELOCITY
-      )
+    const placed = new Particle(
+      velocityStart.x,
+      velocityStart.y,
+      selectedMass,
+      (worldEnd.x - velocityStart.x) * DRAG_TO_VELOCITY,
+      (worldEnd.y - velocityStart.y) * DRAG_TO_VELOCITY
     );
+    placed.maxTrailLength = sceneTrailLength;
+    engine.addParticle(placed);
 
     isDrawingVelocity = false;
     velocityStart = null;
@@ -219,6 +229,7 @@ const sketch = (p: p5) => {
     arrowSizeValue.textContent = renderer.arrowSizeMultiplier.toFixed(1);
 
     engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
+    loadPreset(presetSelect.value);
     renderer.showVectorField = showVectorsCheckbox.checked;
     renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
     renderer.showTrails = showTrailsCheckbox.checked;
@@ -272,6 +283,16 @@ const sketch = (p: p5) => {
       engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
     });
 
+    presetSelect.addEventListener('change', () => {
+      loadPreset(presetSelect.value);
+    });
+
+    // `change` does not fire when the same option is picked again, so replaying
+    // the current scene after pushing it around needs its own button.
+    reloadPresetBtn.addEventListener('click', () => {
+      loadPreset(presetSelect.value);
+    });
+
     resetCameraBtn.addEventListener('click', () => {
       camera.resetCamera();
       updateZoomDisplay();
@@ -286,6 +307,50 @@ const sketch = (p: p5) => {
       isPaused = !isPaused;
       pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
     });
+  }
+
+  /**
+   * Fill the scene dropdown from `PRESETS` and select the default.
+   *
+   * Deliberately not written into index.html: unlike a slider's starting value,
+   * a scene is initial conditions plus the orbital arithmetic behind them, so
+   * duplicating the list in markup would be two sources that can disagree.
+   */
+  function populatePresetOptions(): void {
+    presetSelect.replaceChildren();
+
+    for (const preset of PRESETS) {
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.name;
+      option.title = preset.summary;
+      presetSelect.append(option);
+    }
+
+    presetSelect.value = DEFAULT_PRESET_ID;
+  }
+
+  /**
+   * Replace the scene with a preset and frame the camera on it.
+   *
+   * Leaves the pause state alone — loading a scene while paused is a reasonable
+   * way to inspect its initial forces, and `draw()` keeps the arrows live.
+   */
+  function loadPreset(id: string): void {
+    const preset = getPreset(id);
+    if (!preset) return;
+
+    engine.clearParticles();
+    for (const particle of presetParticles(preset)) {
+      if (preset.trailLength !== undefined) particle.maxTrailLength = preset.trailLength;
+      sceneTrailLength = particle.maxTrailLength;
+      engine.addParticle(particle);
+    }
+
+    camera.resetCameraTo(preset.zoom);
+
+    updateObjectCount();
+    updateZoomDisplay();
   }
 
   function updateObjectCount(): void {

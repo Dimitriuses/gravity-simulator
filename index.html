@@ -105,6 +105,18 @@
 <body>
   <div id="controls">
     <h3>Controls</h3>
+    <!-- Options are generated from PRESETS in src/presets.ts rather than
+         written out here: a scene is initial conditions plus the arithmetic
+         that makes them orbit, so the markup cannot be its source of truth the
+         way the sliders below are. Empty on purpose. -->
+    <label>
+      Scene:
+      <select id="presetSelect" style="margin-left: 5px; padding: 2px; max-width: 150px;"></select>
+    </label>
+    <button id="reloadPresetBtn" style="width: 100%; margin-top: 0;">Reload Scene</button>
+    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+      <strong style="font-size: 13px;">New Bodies</strong>
+    </div>
     <label>
       Mass: <span id="massValue">200</span>
       <input type="range" id="massSlider" min="100" max="5000" value="200" step="50">

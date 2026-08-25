@@ -26,6 +26,11 @@ inferred from how things move.
 
 - **N-body simulation** — every body attracts every other, `F = G·m₁·m₂/r²`,
   softened at contact distance so a close pass stays finite.
+- **Five starting scenes** — a circular binary, a star with two planets, the
+  figure-eight three-body choreography, an eccentric comet and a hyperbolic
+  slingshot. Every velocity is derived from the orbit equation for the
+  simulator's own `G`, and each scene is run through the engine in the test
+  suite to prove it still orbits thousands of steps later.
 - **Two field sampling modes.** *Adaptive* concentrates samples near bodies,
   where the field has structure, using four density zones and deduplicating
   where zones overlap. *Uniform* lays a regular lattice across the view, which
@@ -45,6 +50,12 @@ inferred from how things move.
 | ![Dragging to aim a new body](screenshots/04-drag-to-launch.png) | ![Force and velocity arrows on two satellites](screenshots/05-particle-vectors.png) |
 | **Drag to launch** — the drag vector sets initial velocity | **Per-body vectors** — orange force, cyan velocity |
 
+![The figure-eight three-body choreography, its full period drawn as a trail](screenshots/06-figure-eight.png)
+
+The **Figure eight** scene: three equal masses chasing each other around one
+closed curve, a solution found by Chenciner and Montgomery in 2000. The trail is
+one full period long, which is what makes the curve a curve rather than an arc.
+
 ## Controls
 
 | Input | Action |
@@ -56,9 +67,13 @@ inferred from how things move.
 | **Reset Camera** | Back to origin at 100% |
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
+| **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
+| **Reload Scene** | Rebuild the current scene from scratch |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
-the *Grid Mode* dropdown switches sampling mode.
+the *Grid Mode* dropdown switches sampling mode. Bodies you add yourself inherit
+the loaded scene's trail length, so they leave the same length of trail as the
+ones that were already there.
 
 ## How it works
 
@@ -71,6 +86,7 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   ├── PhysicsEngine     particle list, pairwise forces, integration
   │     ├── Particle       state, F=ma, force law, trail
   │     └── VectorField    field sampling (uniform | adaptive) + OccupancyGrid
+  ├── presets           starting scenes and the orbit arithmetic behind them
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
@@ -84,6 +100,18 @@ energy oscillates within a bound rather than growing: over 1000 orbits at radius
 error appears as phase (~0.066°/orbit), not as a spiral. What it does *not*
 survive is a tight orbit at a fixed step — see
 [Known limitations](#known-limitations).
+
+**Preset scenes are arithmetic, not coordinates.** A scene is initial
+conditions, and initial conditions typed in by hand do not orbit: the original
+opening scene gave its two bodies twice their circular speed, which is above the
+pair's mutual escape velocity, and their separation grew from 400 units to
+14,735 over 20,000 steps without anyone noticing. Every velocity in
+[`src/presets.ts`](src/presets.ts) comes out of an orbit equation — `v =
+sqrt(G·M/r)` for a circular orbit, vis-viva for the comet's eccentric one, a
+published solution rescaled to this engine's `G` for the figure eight — and
+every scene is then run through the real `PhysicsEngine` in
+`tests/presets.test.ts` for thousands of steps and checked against what it
+claims to be.
 
 **Adaptive sampling deduplicates through a spatial hash.** Where two bodies'
 zones overlap, a candidate sample is rejected if an accepted one already sits
@@ -114,23 +142,25 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 73 unit tests, headless, ~1s
+npm test            # 92 unit tests, headless, ~2s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
-its softening, integration and momentum conservation, camera transforms, and
-both field sampling modes — under Node with no DOM.
+its softening, integration and momentum conservation, camera transforms, both
+field sampling modes, and every preset scene run forward for thousands of steps
+— under Node with no DOM.
 
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 25 properties, including that the background is the intended navy, that
+asserts 33 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that the field still draws after panning far from the
-origin, and that the two left-hand panels stay clear of each other in a short
-window. Every one of those corresponds to a defect that had shipped.
+origin, that every scene in the dropdown loads a live configuration, and that
+the two left-hand panels stay clear of each other in a short window. Every one
+of those corresponds to a defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
@@ -160,7 +190,9 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   normalized logarithmically against the range present in the current frame.
   They compare bodies within a frame; they are not an absolute scale, and there
   is no scale bar.
-- **Nothing persists.** No save, load or URL state.
+- **Nothing persists.** No save, load or URL state — the scene dropdown gives
+  you somewhere to start, but a configuration you build yourself is gone on
+  refresh.
 - **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
   The page runs on a phone but cannot be panned or zoomed.
 - **O(n²) forces.** Fine at tens of bodies, not at thousands.
@@ -168,9 +200,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 ## Roadmap
 
 Active development. [`ROADMAP.md`](ROADMAP.md) covers adaptive time-stepping and
-velocity Verlet, collisions and merging, a Barnes–Hut quadtree, shareable scenes
-encoded in the URL, and field readability work (scale bar, equipotential
-contours, streamlines) — plus what is deliberately deferred, and why.
+velocity Verlet, collisions and merging, a Barnes–Hut quadtree, scenes encoded
+in the URL so a configuration can be linked, and field readability work (scale
+bar, equipotential contours, streamlines) — plus what is deliberately deferred,
+and why.
 
 ## Licence
 

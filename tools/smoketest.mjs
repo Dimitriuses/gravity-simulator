@@ -420,7 +420,78 @@ try {
     await shot('04-drag-to-launch.png');
     await page.mouse.up();
     await page.waitForTimeout(200);
+
+    // The figure-eight preset, given long enough to draw its full period. The
+    // trail is what makes the scene legible, and it is 2,600 steps long.
+    await setSlider('#massSlider', 200);
+    await page.selectOption('#presetSelect', 'figure-eight');
+    await page.waitForTimeout(48000);
+    await shot('06-figure-eight.png');
   }
+
+  // ── Preset scenes ──────────────────────────────────────────────────────────
+  // A preset is a claim that these initial conditions orbit; tests/presets.test.ts
+  // proves that against the engine. What can only be checked here is the wiring:
+  // that the dropdown is populated from TypeScript at all, that picking an entry
+  // replaces the scene, and that the camera reframes for scenes too wide for
+  // 100% zoom.
+  const presetOptions = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#presetSelect option')).map((option) => ({
+      value: option.value,
+      label: option.textContent,
+    }))
+  );
+  check(
+    'the scene dropdown is populated from the preset list',
+    presetOptions.length >= 2,
+    `${presetOptions.length} options: ${presetOptions.map((o) => o.value).join(', ')}`
+  );
+
+  const presetZooms = [];
+  for (const option of presetOptions) {
+    await page.selectOption('#presetSelect', option.value);
+    await page.waitForTimeout(1200);
+
+    const state = await page.evaluate(() => ({
+      count: Number(document.getElementById('objectCount').textContent),
+      rows: document.querySelectorAll('.particle-item').length,
+      zoom: Number(document.getElementById('zoomValue').textContent),
+    }));
+    presetZooms.push(state.zoom);
+
+    // Orange force arrows mean bodies that are still on screen and still
+    // pulling on each other a second after loading. The bar is low because
+    // arrows are drawn in world space: the slingshot loads at 50% zoom, where
+    // an arrow covers roughly a quarter of the pixels it would at 100%.
+    const orange = await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 });
+    check(
+      `preset "${option.value}" loads a live scene`,
+      state.count >= 2 && state.rows === state.count && orange > 30,
+      `${state.count} bodies, ${state.rows} rows, zoom=${state.zoom}%, ${orange} force-arrow pixels`
+    );
+  }
+
+  check(
+    'a preset can reframe the camera',
+    presetZooms.some((zoom) => zoom !== 100),
+    `zooms: ${presetZooms.map((z) => `${z}%`).join(', ')}`
+  );
+
+  await page.selectOption('#presetSelect', presetOptions[0].value);
+  await page.waitForTimeout(500);
+  const presetCount = await page.evaluate(() => document.getElementById('objectCount').textContent);
+  await page.click('.particle-item button');
+  await page.waitForTimeout(200);
+  // Re-picking the same option fires no `change` event, which is the whole
+  // reason the Reload Scene button exists.
+  await page.click('#reloadPresetBtn');
+  await page.waitForTimeout(400);
+  const reloaded = await page.evaluate(() => document.getElementById('objectCount').textContent);
+  check(
+    'Reload Scene rebuilds the current preset',
+    reloaded === presetCount,
+    `${presetCount} bodies -> deleted one -> ${reloaded}`
+  );
 
   // ── Panel layout in a short window ─────────────────────────────────────────
   // #controls is capped at calc(100vh - 210px) so it can never grow down into

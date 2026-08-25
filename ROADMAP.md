@@ -76,17 +76,30 @@ attribute.
 
 ## M4 — Save, load, and share
 
-Nothing survives a refresh. Wanted:
+Nothing the user builds survives a refresh.
 
-- Serialize the scene (positions, velocities, masses, camera, render settings).
-- Encode it into the URL fragment so a configuration can be linked directly.
-  This is the feature that would make the live demo genuinely shareable — "here
-  is a figure-eight three-body orbit" as a link.
-- A small library of preset scenes: two-body, the figure-eight three-body
-  solution, a Lagrange-point configuration, a slingshot.
+- ~~A small library of preset scenes.~~ **Done.** Five, in
+  [`src/presets.ts`](src/presets.ts): a circular binary, a star with two
+  planets, the figure-eight choreography, an eccentric comet, and a hyperbolic
+  slingshot. They are data plus the orbit arithmetic that makes them orbit —
+  `v = sqrt(G·M/r)`, vis-viva, and the Chenciner–Montgomery initial conditions
+  rescaled to this engine's `G` — and `tests/presets.test.ts` runs each one
+  through the engine for thousands of steps to check it against its own
+  description. The scene dropdown is populated from that list, so adding a
+  scene is one entry in one array.
+- **Still wanted: serialization.** Positions, velocities, masses, camera and
+  render settings out to a string and back.
+- **Still wanted: the URL fragment.** This is what would make the demo
+  shareable — "here is the configuration I built" as a link. Preset ids are
+  already stable strings chosen with that in mind, so `#scene=figure-eight` is
+  the cheap half of it.
+- A Lagrange-point scene is the obvious sixth preset. It was left out because
+  L4/L5 stability needs a mass ratio above 24.96 and a long, quiet run to show
+  anything, and neither the fixed step (M1) nor a demo's attention span
+  flatters it.
 
-Presets are cheap and would improve the demo's first thirty seconds more than
-anything else on this list. Likely to land before M3.
+Presets improved the demo's first thirty seconds more than anything else on this
+list, as expected. The serialization half is still worth doing before M3.
 
 ## M5 — Making the field readable
 
@@ -130,6 +143,9 @@ Recorded so the omissions read as decisions rather than oversights.
   the codebase grows.
 - `index.html` carries its styles and markup inline. Fine at this size; it
   should be split if the UI grows.
+- The control panel is a single column and now starts scrolling internally
+  below 808px of viewport height, up from 735px before the scene dropdown. It
+  wants grouping into collapsible sections before it gains many more controls.
 - ~~The UI panels overlap each other in a small window.~~ **Done.** The
   overlap was vertical, not horizontal: the control panel is now capped at
   `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of

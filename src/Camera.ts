@@ -159,9 +159,19 @@ export class Camera {
    * Reset camera to default position and zoom
    */
   resetCamera(): void {
+    this.resetCameraTo(1.0);
+  }
+
+  /**
+   * Recentre on the world origin at a given zoom, clamped to the zoom range.
+   *
+   * Loading a preset uses this: a scene 2,400 world units across needs to be
+   * framed on arrival rather than leaving the user to zoom out and find it.
+   */
+  resetCameraTo(zoom: number): void {
     this.x = 0;
     this.y = 0;
-    this.zoom = 1.0;
+    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
   }
 
   /**
