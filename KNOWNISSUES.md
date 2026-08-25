@@ -125,7 +125,9 @@ version needs its own interaction design rather than a polyfill.
 The control panel is capped at `calc(100vh - 210px)` and scrolls internally
 below that, so it can never collide with the bottom-left info panel. Its natural
 height is 566px including padding, so below about **776px** of viewport height
-you have to scroll inside the panel to reach the lower controls.
+you have to scroll inside the panel to reach the lower controls. (Until the
+mouse-target fix, the wheel could not scroll it: the canvas claimed every wheel
+event in the page before deciding whether it was over the canvas.)
 
 Every control added to the panel raises that threshold, which is the cost of a
 single column. The Integration section is a `<details>` collapsed by default for

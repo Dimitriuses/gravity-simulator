@@ -224,6 +224,81 @@ try {
   );
   check('the new body was added', massAgreement.count === '3', `objectCount=${massAgreement.count}`);
 
+  // ── Only the canvas places bodies ──────────────────────────────────────────
+  // p5 listens on `window`, so every click in the page reaches its handlers.
+  // The guard used to hit-test the pointer against the panels' rectangles,
+  // which cannot see a native <select> popup: that is an OS-level widget drawn
+  // over the canvas, so choosing an option from any dropdown arrived with
+  // coordinates outside every panel and dropped a body where the option had
+  // been. Headless Chromium does not open native popups, so the check below
+  // reproduces the event shape one produces — a mouse event whose target is a
+  // UI element, at coordinates over the canvas.
+  const spawnFromUiEvent = async (id) => {
+    const before = await page.evaluate(() => document.getElementById('objectCount').textContent);
+    await page.evaluate((elementId) => {
+      const target = document.getElementById(elementId);
+      for (const type of ['mousedown', 'mouseup']) {
+        target.dispatchEvent(
+          new MouseEvent(type, { bubbles: true, clientX: 700, clientY: 500, button: 0 })
+        );
+      }
+    }, id);
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => document.getElementById('objectCount').textContent);
+    return { before, after };
+  };
+
+  for (const id of ['gridModeSelect', 'presetSelect', 'controls']) {
+    const counts = await spawnFromUiEvent(id);
+    check(
+      `a mouse event on #${id} does not place a body`,
+      counts.before === counts.after,
+      `objectCount ${counts.before} -> ${counts.after}`
+    );
+  }
+
+  // Dragging off the canvas and releasing on a panel cancels the placement
+  // rather than dropping a body underneath the panel.
+  const beforeCancel = await page.evaluate(
+    () => document.getElementById('objectCount').textContent
+  );
+  await page.mouse.move(700, 500);
+  await page.mouse.down();
+  await page.mouse.move(150, 300, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const afterCancel = await page.evaluate(
+    () => document.getElementById('objectCount').textContent
+  );
+  check(
+    'a drag released over a panel places nothing',
+    beforeCancel === afterCancel,
+    `objectCount ${beforeCancel} -> ${afterCancel}`
+  );
+
+  // The wheel belongs to whatever is under it. Claiming it unconditionally
+  // meant the control panel could not be scrolled at all, which matters
+  // because it scrolls internally in a short window.
+  await page.setViewportSize({ width: VIEWPORT.width, height: 620 });
+  await page.waitForTimeout(300);
+  const zoomBeforeWheel = await page.evaluate(
+    () => document.getElementById('zoomValue').textContent
+  );
+  await page.mouse.move(150, 300);
+  await page.mouse.wheel(0, 200);
+  await page.waitForTimeout(300);
+  const wheelOverPanel = await page.evaluate(() => ({
+    zoom: document.getElementById('zoomValue').textContent,
+    scrolled: document.getElementById('controls').scrollTop,
+  }));
+  check(
+    'the wheel scrolls the control panel instead of zooming',
+    wheelOverPanel.zoom === zoomBeforeWheel && wheelOverPanel.scrolled > 0,
+    `zoom ${zoomBeforeWheel}% -> ${wheelOverPanel.zoom}%, panel scrollTop=${wheelOverPanel.scrolled}`
+  );
+  await page.setViewportSize(VIEWPORT);
+  await page.waitForTimeout(300);
+
   // ── The field follows the camera ───────────────────────────────────────────
   // It used to be built inside a fixed box the size of the canvas centred on
   // the world origin, so panning away showed empty space.

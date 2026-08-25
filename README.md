@@ -173,13 +173,14 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 40 properties, including that the background is the intended navy, that
+asserts 45 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
-the mass the slider shows, that the field still draws after panning far from the
-origin, that every scene in the dropdown loads a live configuration, that
-switching integration scheme mid-flight keeps the simulation running, and that
-the two left-hand panels stay clear of each other in a short window. Every one
-of those corresponds to a defect that had shipped.
+the mass the slider shows, that a click on a control places *no* body, that the
+field still draws after panning far from the origin, that every scene in the
+dropdown loads a live configuration, that switching integration scheme
+mid-flight keeps the simulation running, and that the two left-hand panels stay
+clear of each other in a short window. Every one of those corresponds to a
+defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 

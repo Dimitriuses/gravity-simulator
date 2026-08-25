@@ -212,6 +212,31 @@ in HTML would be the duplication the rule exists to prevent. `syncStateFromContr
 still reads the selection and loads it, which is how the page gets its opening
 scene — there is no hard-coded startup configuration any more.
 
+### A click belongs to the canvas only if its `target` is the canvas
+
+p5 listens on `window`, so every mouse event in the page reaches `mousePressed`,
+`mouseReleased` and `mouseWheel`. `isCanvasEvent(event)` decides whether an
+event is the canvas's by comparing `event.target` to the canvas element. Never
+go back to hit-testing `mouseX`/`mouseY` against the panels' bounding
+rectangles.
+
+That is what it used to do, and it cannot see anything the browser draws outside
+the page. A native `<select>` popup is an OS-level widget that opens over the
+canvas: choosing an option from any dropdown in the control panel arrived with
+coordinates beyond every panel's rectangle, so the guard passed and a body was
+placed where the option had been. Every dropdown in the app spawned a body on
+use.
+
+The same rule fixed a second bug in `mouseWheel`, which called
+`preventDefault()` before deciding whether the wheel was its own — so the
+control panel could not be scrolled with the wheel at all, in exactly the short
+windows where it scrolls internally.
+
+Pinned by `tools/smoketest.mjs`: a synthetic mouse event whose target is a UI
+element, at coordinates over the canvas, must place nothing. Headless Chromium
+never opens native popups, so the test reproduces the event shape one produces
+rather than the popup itself.
+
 ### Native DOM listeners, not p5's `select().input()`
 
 `@types/p5` declares `input()` and `changed()` on the **p5 instance**, not on

@@ -29,6 +29,8 @@ const sketch = (p: p5) => {
   let engine: PhysicsEngine;
   let renderer: Renderer;
   let camera: Camera;
+  /** The canvas element itself — what mouse events are checked against. */
+  let canvasElement: HTMLCanvasElement;
 
   // UI state
   let isPaused = false;
@@ -71,6 +73,7 @@ const sketch = (p: p5) => {
   p.setup = () => {
     const canvas = p.createCanvas(p.windowWidth, p.windowHeight);
     canvas.parent(document.body);
+    canvasElement = canvas.elt as HTMLCanvasElement;
 
     // p5's default RGB colour mode is left in place. The renderer switches to
     // HSB only for the vector-field pass, where hue encodes force strength.
@@ -120,11 +123,8 @@ const sketch = (p: p5) => {
     camera.reset();
   };
 
-  p.mousePressed = () => {
-    if (p.mouseX < 0 || p.mouseX > p.width || p.mouseY < 0 || p.mouseY > p.height) {
-      return;
-    }
-    if (isMouseOverUI()) {
+  p.mousePressed = (event?: MouseEvent) => {
+    if (!isCanvasEvent(event)) {
       return;
     }
 
@@ -149,7 +149,7 @@ const sketch = (p: p5) => {
     }
   };
 
-  p.mouseReleased = () => {
+  p.mouseReleased = (event?: MouseEvent) => {
     if (isPanning) {
       camera.endPan();
       isPanning = false;
@@ -158,8 +158,9 @@ const sketch = (p: p5) => {
 
     if (!isDrawingVelocity || !velocityStart) return;
 
-    // Dragging onto a panel cancels rather than dropping a body underneath it
-    if (isMouseOverUI()) {
+    // Releasing anywhere but the canvas cancels, rather than dropping a body
+    // underneath a panel or off the edge of the window.
+    if (!isCanvasEvent(event)) {
       isDrawingVelocity = false;
       velocityStart = null;
       return;
@@ -183,8 +184,11 @@ const sketch = (p: p5) => {
   };
 
   p.mouseWheel = (event: WheelEvent) => {
+    // Only claim the wheel over the canvas. Preventing the default first meant
+    // the control panel could not be scrolled with the wheel at all, which
+    // matters because it scrolls internally in a short window.
+    if (!isCanvasEvent(event)) return;
     event.preventDefault();
-    if (isMouseOverUI()) return;
 
     // Scrolling up (negative deltaY) zooms in.
     camera.zoomAt(p.mouseX, p.mouseY, -event.deltaY);
@@ -197,21 +201,24 @@ const sketch = (p: p5) => {
   };
 
   /**
-   * Is the pointer over one of the floating panels? Those swallow the click so
-   * it does not also place a particle on the canvas beneath.
+   * Did this mouse event actually happen on the canvas?
+   *
+   * p5 listens on `window`, so every click in the page reaches these handlers,
+   * including clicks on the control panels — and a click that is not on the
+   * canvas must never place a body.
+   *
+   * This used to hit-test the pointer against the panels' bounding rectangles,
+   * which is wrong for anything the browser draws *outside* the page: a native
+   * `<select>` popup is an OS-level widget that opens over the canvas, so
+   * choosing an option from any dropdown reported coordinates beyond every
+   * panel's rectangle and dropped a body wherever the option had been. The
+   * event's `target` knows what was really clicked; coordinates do not.
+   *
+   * An event p5 did not give us is treated as not-canvas: refusing to place a
+   * body is the safe way to be wrong.
    */
-  function isMouseOverUI(): boolean {
-    return ['controls', 'info', 'legend'].some((id) => {
-      const element = document.getElementById(id);
-      if (!element) return false;
-      const rect = element.getBoundingClientRect();
-      return (
-        p.mouseX >= rect.left &&
-        p.mouseX <= rect.right &&
-        p.mouseY >= rect.top &&
-        p.mouseY <= rect.bottom
-      );
-    });
+  function isCanvasEvent(event?: Event): boolean {
+    return !!event && event.target === canvasElement;
   }
 
   /**
