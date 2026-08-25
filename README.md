@@ -10,9 +10,9 @@ itself, not just the bodies moving through it. TypeScript and p5.js.
 [![status: active](https://img.shields.io/badge/status-active-brightgreen)](ROADMAP.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-<!-- Uncomment once Pages has deployed green — see "Deploying" below.
-**[▶ Live demo](https://dimitriuses.github.io/gravity-simulator/)**
--->
+**[▶ Live demo](https://dimitriuses.github.io/gravity-simulator/)** — runs
+entirely in the browser, nothing to install. Deployed from `master` by
+[`pages.yml`](.github/workflows/pages.yml).
 
 ![A heavy primary with two satellites, the gravitational field drawn as a coloured arrow grid](screenshots/01-overview.png)
 
@@ -126,22 +126,25 @@ both field sampling modes — under Node with no DOM.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 24 properties, including that the background is the intended navy, that
+asserts 25 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
-the mass the slider shows, and that the field still draws after panning far from
-the origin. Every one of those corresponds to a defect that had shipped.
+the mass the slider shows, that the field still draws after panning far from the
+origin, and that the two left-hand panels stay clear of each other in a short
+window. Every one of those corresponds to a defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
 ## Deploying
 
-The demo deploys to GitHub Pages from
+The demo is live at
+**<https://dimitriuses.github.io/gravity-simulator/>**, deployed from
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) on every push to
 `master`. `vite.config.ts` sets `base: './'`, so the build works unchanged from
 a project sub-path.
 
-**First-time setup:** Settings → Pages → Source → **GitHub Actions**, *before*
-pushing. Selecting it first makes the first deploy succeed on attempt 1.
+**If you fork this:** set Settings → Pages → Source → **GitHub Actions**
+*before* pushing. Selecting it first makes the first deploy succeed on
+attempt 1.
 
 ## Known limitations
 

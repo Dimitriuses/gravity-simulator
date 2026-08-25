@@ -104,10 +104,21 @@ version needs its own interaction design rather than a polyfill.
 ## Very short windows scroll the control panel
 
 The control panel is capped at `calc(100vh - 210px)` and scrolls internally
-below that, so it can never collide with the bottom-left info panel. Below about
-620px of viewport height you therefore have to scroll inside the panel to reach
-the lower controls. Width is not a factor — the panels are narrow and never
-collide horizontally.
+below that, so it can never collide with the bottom-left info panel. Its
+natural height is 524px including padding, so below about **735px** of viewport
+height you have to scroll inside the panel to reach the lower controls.
+
+Width is not a factor. Measured across 320–1280px with the particle list
+populated, the info panel never exceeds 127px wide and the legend 134px, so the
+bottom pair never collide horizontally — the panels overlay the canvas by
+design, but never each other.
+
+The cap only started working once `#controls` was made `border-box`: `max-height`
+applies to the *content* box, so the panel's 15px of padding above and below
+originally sat outside the 210px budget and it reached 30px lower than intended.
+That overlapped the info panel by 15px at any viewport height below ~690px —
+visible only with the particle list populated, which is why it survived the
+original fix. Now checked by `npm run smoketest` at 1280×620.
 
 ## No linter
 

@@ -25,7 +25,15 @@
          at 180px tall. Capping this one to the remaining space keeps the two
          from overlapping in a short window — they used to collide below about
          640px of viewport height. On a normal screen this is far larger than
-         the panel's natural ~500px, so nothing moves. */
+         the panel's natural ~520px, so nothing moves.
+
+         box-sizing matters here: max-height applies to the *content* box, so
+         under the default content-box the 15px of padding above and below sat
+         outside the cap and the panel still reached 30px lower than intended —
+         enough to overlap the info panel by 15px once the particle list filled
+         it out. Both panels are border-box so the 210px budget below is the
+         whole of what they occupy: 180 + 10 + 10 + 10. */
+      box-sizing: border-box;
       max-height: calc(100vh - 210px);
       overflow-y: auto;
     }

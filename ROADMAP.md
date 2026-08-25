@@ -130,6 +130,11 @@ Recorded so the omissions read as decisions rather than oversights.
   the codebase grows.
 - `index.html` carries its styles and markup inline. Fine at this size; it
   should be split if the UI grows.
-- The UI panels have no responsive behaviour and will overlap the canvas
-  awkwardly below roughly 900 px of width. See
-  [`KNOWNISSUES.md`](KNOWNISSUES.md).
+- ~~The UI panels overlap each other in a small window.~~ **Done.** The
+  overlap was vertical, not horizontal: the control panel is now capped at
+  `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of
+  growing down into the info panel, and `npm run smoketest` checks the two stay
+  clear at 1280×620. Width was never a factor — measured from 320px up, the
+  bottom pair never collide. Numbers in [`KNOWNISSUES.md`](KNOWNISSUES.md).
+  What is still missing is any *responsive* behaviour: the panels do not
+  reflow, they simply happen to be narrow enough not to matter.

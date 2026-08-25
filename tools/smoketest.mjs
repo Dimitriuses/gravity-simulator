@@ -422,6 +422,33 @@ try {
     await page.waitForTimeout(200);
   }
 
+  // ── Panel layout in a short window ─────────────────────────────────────────
+  // #controls is capped at calc(100vh - 210px) so it can never grow down into
+  // the bottom-left info panel. The cap applies to the content box, so under
+  // the default content-box sizing the panel's 15px of vertical padding fell
+  // outside the budget and the two overlapped by 15px at any viewport height
+  // below ~690px. Only visible once the particle list has filled the info
+  // panel out to its 180px cap, which is why bodies are placed first.
+  await page.click('#clearBtn');
+  for (let i = 0; i < 8; i++) {
+    await page.mouse.click(400 + i * 30, 600);
+    await page.waitForTimeout(60);
+  }
+  await page.setViewportSize({ width: VIEWPORT.width, height: 620 });
+  await page.waitForTimeout(300);
+  const panelGap = await page.evaluate(() => {
+    const controls = document.getElementById('controls').getBoundingClientRect();
+    const info = document.getElementById('info').getBoundingClientRect();
+    return Math.round(info.top - controls.bottom);
+  });
+  check(
+    'control and info panels stay clear of each other in a short window',
+    panelGap >= 0,
+    `gap=${panelGap}px at ${VIEWPORT.width}x620`
+  );
+  await page.setViewportSize(VIEWPORT);
+  await page.waitForTimeout(200);
+
   // ── Console hygiene ────────────────────────────────────────────────────────
   check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   check('no failed requests', failedRequests.length === 0, failedRequests.slice(0, 3).join(' | '));
