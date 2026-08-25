@@ -198,9 +198,13 @@ try {
   // ── The drag preview ───────────────────────────────────────────────────────
   // Was stroke(255,200,0) interpreted as HSB — brightness 0, i.e. black on a
   // dark background.
-  await page.mouse.move(760, 250);
+  //
+  // Placed well clear of the seeded binary's 200-unit orbit: this used to start
+  // at (760, 250), which sits almost exactly on that circle, and once bodies
+  // could merge the new body was promptly swallowed by a passing one.
+  await page.mouse.move(1000, 180);
   await page.mouse.down();
-  await page.mouse.move(920, 380, { steps: 15 });
+  await page.mouse.move(1120, 300, { steps: 15 });
   await page.waitForTimeout(200);
 
   const preview = await onCanvas(countNear, { rgb: [255, 200, 0], tol: 45 });
@@ -578,7 +582,7 @@ try {
     options: Array.from(document.querySelectorAll('#integratorSelect option')).map((o) => o.value),
     selected: document.getElementById('integratorSelect').value,
     adaptive: document.getElementById('adaptiveStepping').checked,
-    collapsed: !document.getElementById('integrationSection').open,
+    collapsed: !document.getElementById('physicsSection').open,
   }));
   check(
     'the scheme dropdown is populated and defaults to velocity Verlet',
@@ -594,12 +598,12 @@ try {
     return pause.bottom <= panel.bottom + 1;
   });
   check(
-    'the integration section starts collapsed, keeping the buttons in view',
+    'the physics section starts collapsed, keeping the buttons in view',
     schemes.collapsed && buttonsVisible,
     `collapsed=${schemes.collapsed}, pause button fully visible=${buttonsVisible}`
   );
 
-  await page.click('#integrationSection > summary');
+  await page.click('#physicsSection > summary');
   await page.waitForTimeout(200);
 
   await page.selectOption('#presetSelect', 'star-and-planets');
@@ -627,6 +631,9 @@ try {
 
   // Drop a second heavy body onto the primary: a pair at contact distance is
   // the tightest thing the interface can make, and it should ask for more.
+  // Contacts are held off for this, or the pair merges on the first sub-step
+  // and there is nothing left to resolve finely.
+  await page.selectOption('#collisionSelect', 'none');
   await page.locator('#massSlider').fill('5000');
   await page.waitForTimeout(60);
   await page.mouse.click(VIEWPORT.width / 2 + 12, VIEWPORT.height / 2);
@@ -640,8 +647,71 @@ try {
     `sub-steps=${closeSubSteps}`
   );
 
+  await page.selectOption('#collisionSelect', 'merge');
   await page.locator('#massSlider').fill('200');
   await page.waitForTimeout(60);
+
+  // ── Collisions ─────────────────────────────────────────────────────────────
+  // The conservation laws are proved in tests/collisions.test.ts. What only
+  // exists in the browser is the particle list: until bodies could merge, the
+  // only way to lose one was to press its delete button, so nothing ever
+  // removed a row on its own.
+  const collisionModes = await page.evaluate(() => ({
+    options: Array.from(document.querySelectorAll('#collisionSelect option')).map((o) => o.value),
+    selected: document.getElementById('collisionSelect').value,
+  }));
+  check(
+    'the contact dropdown is populated and defaults to merging',
+    collisionModes.options.length === 3 && collisionModes.selected === 'merge',
+    `options=[${collisionModes.options.join(', ')}], selected=${collisionModes.selected}`
+  );
+
+  // Two heavy bodies dropped almost on top of each other, with the field off
+  // so this is quick and unambiguous.
+  await page.click('#clearBtn');
+  await page.waitForTimeout(200);
+  await page.locator('#massSlider').fill('3000');
+  await page.waitForTimeout(60);
+  await page.mouse.click(600, 400);
+  await page.mouse.click(640, 400);
+  await page.waitForTimeout(1200);
+
+  const afterMerge = await page.evaluate(() => ({
+    count: document.getElementById('objectCount').textContent,
+    rows: document.querySelectorAll('.particle-item').length,
+    label: document.querySelector('.particle-item span')?.textContent ?? '',
+  }));
+  check(
+    'two touching bodies merge into one',
+    afterMerge.count === '1' && afterMerge.rows === 1,
+    `objectCount=${afterMerge.count}, rows=${afterMerge.rows}`
+  );
+  check(
+    'the particle list follows a body that disappeared on its own',
+    afterMerge.label === '#1 - Mass: 6000',
+    `row reads "${afterMerge.label}"`
+  );
+
+  // Pass-through mode restores the old behaviour: the same two bodies coexist.
+  await page.selectOption('#collisionSelect', 'none');
+  await page.click('#clearBtn');
+  await page.waitForTimeout(200);
+  await page.mouse.click(600, 400);
+  await page.mouse.click(640, 400);
+  await page.waitForTimeout(1200);
+  const passingThrough = await page.evaluate(
+    () => document.getElementById('objectCount').textContent
+  );
+  check(
+    'pass-through mode leaves both bodies alone',
+    passingThrough === '2',
+    `objectCount=${passingThrough}`
+  );
+
+  await page.selectOption('#collisionSelect', 'merge');
+  await page.locator('#massSlider').fill('200');
+  await page.click('#clearBtn');
+  await page.waitForTimeout(200);
 
   // ── Panel layout in a short window ─────────────────────────────────────────
   // #controls is capped at calc(100vh - 210px) so it can never grow down into

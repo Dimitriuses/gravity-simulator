@@ -5,6 +5,7 @@ import { Particle } from './Particle';
 import { Camera } from './Camera';
 import { DEFAULT_PRESET_ID, PRESETS, getPreset, presetParticles } from './presets';
 import { INTEGRATOR_LABELS, IntegratorName } from './integrators';
+import { COLLISION_MODE_LABELS, CollisionMode } from './collisions';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -44,6 +45,8 @@ const sketch = (p: p5) => {
    * the three already there.
    */
   let sceneTrailLength = new Particle(0, 0).maxTrailLength;
+  /** How many bodies the particle list is currently showing. */
+  let listedParticleCount = 0;
 
   // HTML controls
   const massSlider = el<HTMLInputElement>('massSlider');
@@ -61,6 +64,7 @@ const sketch = (p: p5) => {
   const reloadPresetBtn = el('reloadPresetBtn');
   const integratorSelect = el<HTMLSelectElement>('integratorSelect');
   const adaptiveSteppingCheckbox = el<HTMLInputElement>('adaptiveStepping');
+  const collisionSelect = el<HTMLSelectElement>('collisionSelect');
   const subStepCount = el('subStepCount');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
   const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
@@ -82,10 +86,11 @@ const sketch = (p: p5) => {
     renderer = new Renderer(p, engine);
     camera = new Camera(p);
 
-    // These two dropdowns are the controls whose options come from TypeScript,
-    // so they have to be filled in before anything reads their values.
+    // These dropdowns are the controls whose options come from TypeScript, so
+    // they have to be filled in before anything reads their values.
     populatePresetOptions();
     populateIntegratorOptions();
+    populateCollisionOptions();
 
     setupUI();
     // Read the simulation's starting values out of the markup rather than
@@ -111,6 +116,12 @@ const sketch = (p: p5) => {
     engine.updateField(view);
 
     updateSubStepDisplay();
+    // Merging removes bodies without anyone clicking anything, which the
+    // particle list had never had to cope with: until collisions existed the
+    // only way to lose a body was to press its delete button.
+    if (engine.particles.length !== listedParticleCount) {
+      updateObjectCount();
+    }
 
     camera.apply();
     renderer.draw();
@@ -245,6 +256,7 @@ const sketch = (p: p5) => {
     engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
     engine.integrator = integratorSelect.value as IntegratorName;
     engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
+    engine.collisionMode = collisionSelect.value as CollisionMode;
     loadPreset(presetSelect.value);
     renderer.showVectorField = showVectorsCheckbox.checked;
     renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
@@ -312,6 +324,10 @@ const sketch = (p: p5) => {
       updateSubStepDisplay();
     });
 
+    collisionSelect.addEventListener('change', () => {
+      engine.collisionMode = collisionSelect.value as CollisionMode;
+    });
+
     // `change` does not fire when the same option is picked again, so replaying
     // the current scene after pushing it around needs its own button.
     reloadPresetBtn.addEventListener('click', () => {
@@ -349,6 +365,23 @@ const sketch = (p: p5) => {
     }
 
     integratorSelect.value = engine.integrator;
+  }
+
+  /**
+   * Fill the contact dropdown from `COLLISION_MODE_LABELS`, selecting whatever
+   * the engine defaults to.
+   */
+  function populateCollisionOptions(): void {
+    collisionSelect.replaceChildren();
+
+    for (const mode of COLLISION_MODE_LABELS) {
+      const option = document.createElement('option');
+      option.value = mode.id;
+      option.textContent = mode.label;
+      collisionSelect.append(option);
+    }
+
+    collisionSelect.value = engine.collisionMode;
   }
 
   /**
@@ -396,7 +429,8 @@ const sketch = (p: p5) => {
   }
 
   function updateObjectCount(): void {
-    objectCount.textContent = engine.particles.length.toString();
+    listedParticleCount = engine.particles.length;
+    objectCount.textContent = listedParticleCount.toString();
     updateParticleList();
   }
 

@@ -173,17 +173,21 @@
     </label>
     <!-- Collapsed by default: the defaults inside are the ones to want, and an
          always-open section pushed Clear All and Pause below the fold in an
-         800px-tall window. Options are generated from INTEGRATOR_LABELS in
-         src/integrators.ts, for the same reason the scene list is — the schemes
-         are code, not markup. -->
-    <details class="section" id="integrationSection">
-      <summary>Integration</summary>
+         800px-tall window. Both dropdowns are generated from TypeScript
+         (INTEGRATOR_LABELS, COLLISION_MODE_LABELS) for the same reason the
+         scene list is — the schemes and modes are code, not markup. -->
+    <details class="section" id="physicsSection">
+      <summary>Physics</summary>
       <label style="font-size: 11px;">
         Scheme:
         <select id="integratorSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
       </label>
       <label>
         <input type="checkbox" id="adaptiveStepping" checked> Adaptive Sub-steps
+      </label>
+      <label style="font-size: 11px;">
+        Contact:
+        <select id="collisionSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
       </label>
     </details>
     <div class="section" style="font-weight: normal;">

@@ -108,6 +108,10 @@ describe('PhysicsEngine', () => {
 
   it('stays finite through a close encounter', () => {
     const engine = new PhysicsEngine(30);
+    // Collisions off, so this is the softening floor being tested rather than
+    // the merge that would otherwise resolve the encounter — see
+    // tests/collisions.test.ts.
+    engine.collisionMode = 'none';
     // Aimed straight at each other: they pass through the softening floor.
     engine.addParticle(new Particle(-60, 0, 500, 2, 0));
     engine.addParticle(new Particle(60, 0, 500, -2, 0));

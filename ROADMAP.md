@@ -45,18 +45,43 @@ block time-stepping is the next move, and only matters once scenes are large
 enough for the waste to show - which makes it a natural companion to M3 rather
 than a job on its own.
 
-## M2 — Collisions and merging
+## M2 - Collisions and merging - **done**
 
-Bodies currently pass straight through each other. The force is softened at
-contact distance (see `Particle.attractionTo`), which keeps the simulation
-finite, but "finite" is not "physical".
+Bodies used to pass straight through each other. The force softened at contact
+distance, which kept the simulation finite, but finite is not physical.
 
-- Detect overlap, then merge: conserve mass and momentum, sum the areas for the
-  new radius, and drop the absorbed body from the list.
-- An inelastic-bounce mode as an alternative, since merging destroys the more
-  interesting dynamics.
-- The particle list UI needs to cope with bodies disappearing on their own,
-  which it currently never does.
+- ~~Detect overlap, then merge: conserve mass and momentum, drop the absorbed
+  body from the list.~~ **Done.** The heavier body absorbs the lighter one and
+  keeps its identity, so its trail carries through the collision instead of
+  restarting. The merged body sits at the pair's centre of mass with their
+  combined momentum, and merging repeats until nothing overlaps - a merged body
+  is larger than either part and can reach a third body neither of them touched.
+- ~~An inelastic-bounce mode as an alternative, since merging destroys the more
+  interesting dynamics.~~ **Done.** An impulse along the contact normal at
+  restitution 0.5, plus the positional correction that separates the pair -
+  without which the two stay overlapped, collide again next step and jitter
+  forever. Pass-through remains available as a third mode.
+- ~~The particle list UI needs to cope with bodies disappearing on their own.~~
+  **Done.** It re-reads the list whenever the body count changes, rather than
+  only when a button is pressed.
+
+One departure from the plan above: it called for summing the two areas to get
+the merged radius. `Particle` derives radius from mass as `2*m^(1/3)`, and four
+other things read that relationship - contact distance, the softening floor, the
+adaptive step clamp and the renderer. Summing areas would have made a merged
+body a different size from every other body of the same mass, so the merged
+radius comes from the merged mass instead.
+
+**Still open**, and none of it urgent:
+
+- **Rotation.** Bodies carry no angular momentum, so an off-centre impact that
+  should impart spin only deflects. Adding it means angular state on every body
+  and friction at the contact point.
+- **Fragmentation**, the opposite of merging, and much harder to make look right.
+- **Swept contact detection.** Overlap is tested after each sub-step rather than
+  along the path between them; sub-stepping keeps tunnelling rare rather than
+  impossible. Numbers in [`KNOWNISSUES.md`](KNOWNISSUES.md).
+- **Restitution as a control**, rather than a constant.
 
 ## M3 — Scale: Barnes–Hut
 

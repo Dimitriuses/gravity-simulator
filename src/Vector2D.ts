@@ -48,6 +48,15 @@ export class Vector2D {
   }
 
   /**
+   * Dot product. Used by the collision solver to split a relative velocity into
+   * the part along the contact normal (which bounces) and the part across it
+   * (which does not).
+   */
+  dot(v: Vector2D): number {
+    return this.x * v.x + this.y * v.y;
+  }
+
+  /**
    * Normalize the vector (make it unit length)
    */
   normalize(): Vector2D {

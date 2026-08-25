@@ -19,8 +19,20 @@ export class Particle {
     this.velocity = new Vector2D(vx, vy);
     this.acceleration = new Vector2D(0, 0);
     this.mass = mass;
-    // Radius proportional to mass (cube root for area scaling)
-    this.radius = Math.pow(mass, 1/3) * 2;
+    this.radius = Particle.radiusForMass(mass);
+  }
+
+  /**
+   * Radius of a body of this mass: `2 * m^(1/3)`.
+   *
+   * A body's radius is a pure function of its mass and nothing else. Contact
+   * distance, the softening floor in the force law, the adaptive step rule's
+   * clamp and the renderer all read it, so a body whose radius disagreed with
+   * its mass would be a different size to every other body of the same mass and
+   * would soften at the wrong distance.
+   */
+  static radiusForMass(mass: number): number {
+    return Math.pow(mass, 1 / 3) * 2;
   }
 
   /**
@@ -62,6 +74,36 @@ export class Particle {
     if (this.trail.length > this.maxTrailLength) {
       this.trail.shift();
     }
+  }
+
+  /**
+   * Swallow `other`, conserving mass and momentum.
+   *
+   * This body survives and keeps its identity, so its trail carries through the
+   * collision rather than restarting; the caller drops the absorbed one from
+   * the simulation. The merged body sits at the pair's centre of mass and
+   * carries their combined momentum, which makes the merge perfectly inelastic
+   * — kinetic energy is lost, as it is in any real merge.
+   *
+   * The new radius comes from the new mass, via the rule above. The roadmap
+   * originally called for summing the two areas instead; that would make a
+   * merged body wider than any other body of the same mass, and radius is
+   * relied on as a function of mass in four other places.
+   */
+  absorb(other: Particle): void {
+    const total = this.mass + other.mass;
+
+    this.position = this.position
+      .mult(this.mass)
+      .add(other.position.mult(other.mass))
+      .div(total);
+    this.velocity = this.velocity
+      .mult(this.mass)
+      .add(other.velocity.mult(other.mass))
+      .div(total);
+
+    this.mass = total;
+    this.radius = Particle.radiusForMass(total);
   }
 
   /**

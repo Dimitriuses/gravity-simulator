@@ -39,13 +39,14 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── presets        starting scenes, as data plus orbit arithmetic
   ├── integrators    Euler / Verlet / RK4, and the adaptive sub-step rule
   │     └── forces      the softened force law; accelerations at any positions
+  ├── collisions     merge / bounce / pass through, resolved at contact
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 113 tests run under Node in about three seconds
+plain TypeScript, which is why 138 tests run under Node in about three seconds
 with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -89,6 +90,40 @@ first sub-step, because adding or removing a body invalidates the entry
 condition. `tests/integrators.test.ts` counts evaluations through a wrapping
 `ForceField`, so a scheme that quietly starts recomputing what it was given
 fails rather than merely getting slower.
+
+### A body's radius is a function of its mass, and of nothing else
+
+`Particle.radiusForMass(mass)` is `2 * m^(1/3)`, and it is the only way a radius
+is ever set - the constructor uses it, and so does `absorb()` after a merge.
+Four things read the relationship: contact distance in `collisions.ts`, the
+softening floor in `forces.ts`, the adaptive step rule's clamp, and the renderer.
+
+The roadmap originally specified summing the two areas for a merged body's
+radius. That would produce a body wider than any other body of the same mass,
+which softens at the wrong distance and collides at the wrong distance. Mass is
+what is conserved; radius follows from it.
+
+### Contact distance and the softening floor are the same number
+
+Two bodies touch at `a.radius + b.radius`, which is exactly where
+`gravitationalForce` stops letting the force grow. Keep them equal. Inside that
+distance the force law has already given up on saying anything meaningful, so it
+is the natural place - and the only defensible place - to resolve a contact.
+
+### Collisions invalidate every cached acceleration
+
+Merging changes the membership of the particle list and the masses in it;
+bouncing changes positions. Either way the integrator contract above is broken,
+so `PhysicsEngine.resolveCollisions()` sets `forcesDirty`, and `step()`
+recomputes before returning if the last sub-step collided - the renderer reads
+`netForce` the moment it returns.
+
+Contacts are resolved after *each sub-step*, not once per frame. That is the
+point of having sub-steps: a fast approach is sliced finely enough to notice the
+moment of contact rather than stepping over it. Detection is still a discrete
+overlap test, so tunnelling is rare rather than impossible - pinned by a test
+that shows a 160-unit-per-frame pass tunnelling with adaptive stepping off and
+merging with it on.
 
 ### There is one force law, in `forces.ts`
 

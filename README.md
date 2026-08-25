@@ -29,6 +29,8 @@ inferred from how things move.
 - **Three integration schemes**, switchable while running — velocity Verlet
   (the default), symplectic Euler and RK4 — with adaptive sub-stepping that
   slices a frame as finely as the closest pair needs.
+- **Contacts are resolved**: bodies merge on contact by default, conserving mass
+  and momentum, or bounce inelastically, or pass through — whichever you pick.
 - **Five starting scenes** — a circular binary, a star with two planets, the
   figure-eight three-body choreography, an eccentric comet and a hyperbolic
   slingshot. Every velocity is derived from the orbit equation for the
@@ -72,7 +74,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Clear All** / **Pause** | Empty the scene / freeze it |
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
 | **Reload Scene** | Rebuild the current scene from scratch |
-| **Integration** section | Switch scheme, or turn adaptive sub-stepping off |
+| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, or choose what happens on contact |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Grid Mode* dropdown switches sampling mode. Bodies you add yourself inherit
@@ -93,6 +95,7 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   ├── presets           starting scenes and the orbit arithmetic behind them
   ├── integrators       Euler / Verlet / RK4 + the adaptive step rule
   │     └── forces         the softened force law, and accelerations at any positions
+  ├── collisions        merge / bounce / pass through, at contact distance
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
@@ -156,15 +159,16 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 113 unit tests, headless, ~3s
+npm test            # 138 unit tests, headless, ~3s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
-its softening, camera transforms, both field sampling modes, and every preset
-scene run forward for thousands of steps — under Node with no DOM. The
+its softening, camera transforms, both field sampling modes, the conservation
+laws through a collision, and every preset scene run forward for thousands of
+steps — under Node with no DOM. The
 integrators get the treatment they need: each is checked against the closed form
 for a constant field, then against its own convergence order by halving the step
 and watching the error fall by 2, 4 and 16, and finally over 500 orbits to
@@ -173,14 +177,15 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 45 properties, including that the background is the intended navy, that
+asserts 49 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
 dropdown loads a live configuration, that switching integration scheme
-mid-flight keeps the simulation running, and that the two left-hand panels stay
-clear of each other in a short window. Every one of those corresponds to a
-defect that had shipped.
+mid-flight keeps the simulation running, that the particle list notices a body
+that merged away without anyone clicking anything, and that the two left-hand
+panels stay clear of each other in a short window. Every one of those
+corresponds to a defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
@@ -207,8 +212,11 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   Euler) to 0.11%. There is a floor on how badly a *physical* orbit can be
   resolved — about 25 steps per orbit, since a body cannot orbit inside the
   primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
-- **No collisions.** Bodies pass through one another; gravity is softened at
-  contact rather than resolved.
+- **Collisions are crude.** Merging is perfectly inelastic and irreversible,
+  bodies carry no rotation, and contact is a discrete overlap test rather than a
+  swept one — so a body moving further than the contact window in a single
+  sub-step can still pass through. Adaptive sub-stepping is what keeps that
+  rare.
 - **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
   normalized logarithmically against the range present in the current frame.
   They compare bodies within a frame; they are not an absolute scale, and there
@@ -222,7 +230,7 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers collisions and merging, a Barnes–Hut quadtree, scenes encoded
+Active development. [`ROADMAP.md`](ROADMAP.md) covers a Barnes–Hut quadtree, scenes encoded
 in the URL so a configuration can be linked, and field readability work (scale
 bar, equipotential contours, streamlines) — plus what is deliberately deferred,
 and why.

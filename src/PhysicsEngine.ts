@@ -9,6 +9,7 @@ import {
   MAX_SUB_STEPS,
   recommendedSubSteps,
 } from './integrators';
+import { CollisionMode, resolveCollisions } from './collisions';
 
 /**
  * Gravitational constant. Not Newton's — a tuning value picked so that the
@@ -40,6 +41,18 @@ export class PhysicsEngine implements ForceField {
 
   /** Sub-steps the last `step()` actually took. Read by the UI. */
   lastSubSteps: number = 1;
+
+  /**
+   * What happens when two bodies touch: merge, bounce, or pass through.
+   *
+   * Merging by default. Passing through is what the simulation did before
+   * roadmap M2 and is kept because it is occasionally what you want, but it is
+   * the least physical of the three.
+   */
+  collisionMode: CollisionMode = 'merge';
+
+  /** Collision events resolved since the engine was created. Read by the UI. */
+  collisionCount: number = 0;
 
   /**
    * Whether `acceleration` and `netForce` are stale.
@@ -137,10 +150,35 @@ export class PhysicsEngine implements ForceField {
   }
 
   /**
-   * One frame: however many sub-steps the closest pair needs, then one trail
-   * point per particle.
+   * Resolve contacts, and report whether anything happened.
+   *
+   * Kept public because a paused simulation may still need it: adding a body on
+   * top of another while frozen should not leave two bodies inside each other
+   * waiting for the clock to start.
+   */
+  resolveCollisions(): number {
+    const events = resolveCollisions(this.particles, this.collisionMode);
+
+    if (events > 0) {
+      this.collisionCount += events;
+      // Merging changes the membership of the list and the masses in it;
+      // bouncing changes positions. Either way every cached acceleration is
+      // now wrong, and the integrator contract says they must not be.
+      this.forcesDirty = true;
+    }
+
+    return events;
+  }
+
+  /**
+   * One frame: however many sub-steps the closest pair needs, contacts resolved
+   * after each, then one trail point per particle.
    *
    * The trail records the frame, not the sub-steps — see `Particle.recordTrail`.
+   *
+   * Contacts are resolved per sub-step rather than per frame because that is
+   * the whole point of sub-stepping: a fast pass is sliced finely enough to
+   * notice the moment of contact, instead of stepping over it.
    */
   step(dt: number = 1): void {
     this.lastSubSteps = this.adaptiveStepping
@@ -150,7 +188,12 @@ export class PhysicsEngine implements ForceField {
     const subStep = dt / this.lastSubSteps;
     for (let i = 0; i < this.lastSubSteps; i++) {
       this.integrate(subStep);
+      this.resolveCollisions();
     }
+
+    // A collision in the last sub-step leaves accelerations stale, and the
+    // renderer reads netForce as soon as this returns.
+    if (this.forcesDirty) this.computeForces();
 
     for (const particle of this.particles) {
       particle.recordTrail();

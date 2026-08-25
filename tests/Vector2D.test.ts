@@ -70,3 +70,22 @@ describe('Vector2D', () => {
     expect(original.x).toBe(1);
   });
 });
+
+describe('dot', () => {
+  it('multiplies parallel components and cancels perpendicular ones', () => {
+    expect(new Vector2D(3, 4).dot(new Vector2D(2, 1))).toBeCloseTo(10, 12);
+    expect(new Vector2D(1, 0).dot(new Vector2D(0, 1))).toBeCloseTo(0, 12);
+  });
+
+  it('gives the signed component of one vector along a unit vector', () => {
+    // What the collision solver uses it for: is this pair approaching or
+    // separating along the contact normal?
+    const normal = new Vector2D(1, 0);
+    expect(new Vector2D(-4, 7).dot(normal)).toBeCloseTo(-4, 12);
+  });
+
+  it('is the squared magnitude against itself', () => {
+    const v = new Vector2D(-5, 12);
+    expect(v.dot(v)).toBeCloseTo(v.magnitudeSquared(), 12);
+  });
+});
