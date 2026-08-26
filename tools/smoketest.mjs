@@ -819,6 +819,125 @@ try {
   await page.setViewportSize(VIEWPORT);
   await page.waitForTimeout(200);
 
+  // ── Saving and sharing ─────────────────────────────────────────────────────
+  // The format itself is proved in tests/serialization.test.ts, including what
+  // it does with malformed input. What only exists here is the round trip: a
+  // scene goes into the address bar, the address bar goes into a fresh page
+  // load, and the same scene comes back.
+  await page.selectOption('#presetSelect', 'figure-eight');
+  await page.waitForTimeout(700);
+
+  const presetHash = await page.evaluate(() => location.hash);
+  check(
+    'picking a scene puts a link to it in the address bar',
+    presetHash === '#v=1;s=figure-eight',
+    `hash="${presetHash}"`
+  );
+
+  // Add a body, so what gets shared is a scene rather than a preset name.
+  await page.mouse.click(1000, 200);
+  await page.waitForTimeout(500);
+
+  const beforeShare = await page.evaluate(() => ({
+    count: document.getElementById('objectCount').textContent,
+    zoom: document.getElementById('zoomValue').textContent,
+  }));
+
+  await page.click('#shareBtn');
+  await page.waitForTimeout(500);
+
+  const shared = await page.evaluate(() => ({
+    hash: location.hash,
+    href: location.href,
+    status: document.getElementById('shareStatus').textContent,
+  }));
+  check(
+    'sharing writes the live scene into the address bar',
+    shared.hash.startsWith('#v=1;') && shared.hash.includes(';b='),
+    `${shared.hash.length} characters, starts "${shared.hash.slice(0, 40)}"`
+  );
+  check(
+    'and says what it did with the link',
+    /copied|address bar/i.test(shared.status ?? ''),
+    `status="${shared.status}"`
+  );
+
+  /**
+   * Open a link the way someone receiving it would: a real document load.
+   *
+   * `goto` alone is not enough — a URL that differs only in its fragment is a
+   * same-document navigation, so the page never reloads and a "round trip"
+   * built on it would be testing the page it was already looking at. Asking for
+   * the URL and then reloading forces the fresh start.
+   */
+  const openLink = async (url) => {
+    await page.goto(url, { waitUntil: 'load' });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => !!document.querySelector('canvas'), { timeout: 20000 });
+    await page.waitForTimeout(1500);
+  };
+
+  await openLink(shared.href);
+
+  const restored = await page.evaluate(() => ({
+    count: document.getElementById('objectCount').textContent,
+    zoom: document.getElementById('zoomValue').textContent,
+    status: document.getElementById('shareStatus').textContent,
+  }));
+  check(
+    'the link restores the scene it was made from',
+    restored.count === beforeShare.count && restored.zoom === beforeShare.zoom,
+    `${restored.count} bodies at ${restored.zoom}% zoom, shared as ` +
+      `${beforeShare.count} at ${beforeShare.zoom}%`
+  );
+  check(
+    'and says the scene was loaded from a link',
+    /^Loaded the scene/.test(restored.status ?? ''),
+    `status="${restored.status}"`
+  );
+
+  // The short form, which is what the scene dropdown writes.
+  await openLink(`${BASE}#v=1;s=comet`);
+  const byName = await page.evaluate(() => ({
+    scene: document.getElementById('presetSelect').value,
+    count: document.getElementById('objectCount').textContent,
+  }));
+  check(
+    'a link can name a scene instead of describing it',
+    byName.scene === 'comet' && byName.count === '2',
+    `scene="${byName.scene}", ${byName.count} bodies`
+  );
+
+  // Pasting a link into the address bar of a page already open changes the
+  // fragment without reloading, which is a different code path from the one
+  // above and the same one the back button uses.
+  await page.evaluate(() => {
+    location.hash = 'v=1;s=binary';
+  });
+  await page.waitForTimeout(900);
+  const pasted = await page.evaluate(() => ({
+    scene: document.getElementById('presetSelect').value,
+    count: document.getElementById('objectCount').textContent,
+  }));
+  check(
+    'changing the fragment on a live page loads the new scene',
+    pasted.scene === 'binary' && pasted.count === '2',
+    `scene="${pasted.scene}", ${pasted.count} bodies`
+  );
+
+  // A link from outside is untrusted input, and the app should say so rather
+  // than showing the default scene as though the link had worked.
+  await openLink(`${BASE}#v=1;b=nonsense`);
+  const broken = await page.evaluate(() => ({
+    status: document.getElementById('shareStatus').textContent,
+    count: document.getElementById('objectCount').textContent,
+  }));
+  check(
+    'a link that is not a scene says so, and the app still runs',
+    /could not read/i.test(broken.status ?? '') && Number(broken.count) > 0,
+    `status="${broken.status}", ${broken.count} bodies`
+  );
+
   // ── Console hygiene ────────────────────────────────────────────────────────
   check('no console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   check('no failed requests', failedRequests.length === 0, failedRequests.slice(0, 3).join(' | '));

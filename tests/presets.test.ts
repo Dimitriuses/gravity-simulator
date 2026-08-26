@@ -246,6 +246,73 @@ describe('comet', () => {
   });
 });
 
+describe('lagrange points', () => {
+  /**
+   * Where each trojan sits, as the angle at the *primary* between the secondary
+   * and the trojan.
+   *
+   * That is the angle the equilateral triangle actually fixes, and it is 60
+   * degrees by construction. Measured from the barycentre instead it would be
+   * 61.0 degrees here and would move with the mass ratio, which makes it a
+   * worse thing to assert.
+   */
+  function trojanAngles(engine: PhysicsEngine) {
+    const primary = engine.particles[0].position;
+    const toSecondary = engine.particles[1].position.sub(primary);
+    const base = Math.atan2(toSecondary.y, toSecondary.x);
+
+    return [2, 3].map((index) => {
+      const toTrojan = engine.particles[index].position.sub(primary);
+      const angle = Math.atan2(toTrojan.y, toTrojan.x);
+      return ((((angle - base) * 180) / Math.PI + 540) % 360) - 180;
+    });
+  }
+
+  it('parks the trojans 60 degrees from the secondary and keeps them there', () => {
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    for (const particle of presetParticles(preset('lagrange'))) engine.addParticle(particle);
+
+    const [aheadStart, behindStart] = trojanAngles(engine);
+    expect(aheadStart).toBeCloseTo(60, 1);
+    expect(behindStart).toBeCloseTo(-60, 1);
+
+    // Twenty orbits of the pair; the period is ~995 steps.
+    let worstAhead = 0;
+    let worstBehind = 0;
+    for (let i = 0; i < 20000; i++) {
+      engine.step();
+      const [ahead, behind] = trojanAngles(engine);
+      worstAhead = Math.max(worstAhead, Math.abs(ahead - 60));
+      worstBehind = Math.max(worstBehind, Math.abs(behind + 60));
+    }
+
+    // Measured: they librate a few degrees around the points rather than
+    // drifting away from them. Libration is the interesting part — a trojan
+    // that sat perfectly still would look like a bug.
+    expect(worstAhead).toBeLessThan(15);
+    expect(worstBehind).toBeLessThan(15);
+  }, 30000);
+
+  it('keeps the two primaries on their circular orbit', () => {
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    for (const particle of presetParticles(preset('lagrange'))) engine.addParticle(particle);
+
+    let min = Infinity;
+    let max = 0;
+    for (let i = 0; i < 10000; i++) {
+      engine.step();
+      const d = separation(engine.particles[0], engine.particles[1]);
+      min = Math.min(min, d);
+      max = Math.max(max, d);
+    }
+
+    expect(min).toBeGreaterThan(395);
+    expect(max).toBeLessThan(405);
+  }, 30000);
+});
+
 describe('galaxy', () => {
   it('holds its disc rather than dispersing or collapsing', () => {
     const scene = preset('galaxy');

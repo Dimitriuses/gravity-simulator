@@ -7,6 +7,7 @@ import { DEFAULT_PRESET_ID, PRESETS, getPreset, presetParticles } from './preset
 import { INTEGRATOR_LABELS, IntegratorName } from './integrators';
 import { COLLISION_MODE_LABELS, CollisionMode } from './collisions';
 import { FORCE_MODE_LABELS, ForceMode } from './PhysicsEngine';
+import { SavedScene, decodeScene, encodeScene } from './serialization';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -24,6 +25,15 @@ const DRAG_TO_VELOCITY = 0.05;
  * never readable; what it was, was expensive to rebuild.
  */
 const MAX_LISTED_PARTICLES = 40;
+
+/**
+ * How long a shared link can get before it is worth warning about.
+ *
+ * Browsers handle far more than this, but chat clients, mail clients and issue
+ * trackers all have their own opinions and 2,000 characters is the length none
+ * of them argue with. A hand-built scene of twenty bodies is about 900.
+ */
+const COMFORTABLE_LINK_LENGTH = 2000;
 
 /** Typed lookup — every one of these ids exists in index.html. */
 function el<T extends HTMLElement>(id: string): T {
@@ -56,6 +66,11 @@ const sketch = (p: p5) => {
   let sceneTrailLength = new Particle(0, 0).maxTrailLength;
   /** How many bodies the particle list is currently showing. */
   let listedParticleCount = 0;
+  /**
+   * The fragment this page last wrote, so its own writes can be told apart from
+   * a link someone pasted into the address bar.
+   */
+  let lastWrittenHash = '';
 
   // HTML controls
   const massSlider = el<HTMLInputElement>('massSlider');
@@ -75,6 +90,8 @@ const sketch = (p: p5) => {
   const adaptiveSteppingCheckbox = el<HTMLInputElement>('adaptiveStepping');
   const collisionSelect = el<HTMLSelectElement>('collisionSelect');
   const forceModeSelect = el<HTMLSelectElement>('forceModeSelect');
+  const shareBtn = el('shareBtn');
+  const shareStatus = el('shareStatus');
   const subStepCount = el('subStepCount');
   const forceModeLabel = el('forceModeLabel');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
@@ -109,6 +126,10 @@ const sketch = (p: p5) => {
     // duplicating them here, so the controls and the simulation cannot disagree.
     // That includes the opening scene, which is whichever preset is selected.
     syncStateFromControls();
+
+    // ...unless the page was opened with a scene in its fragment, which is the
+    // whole point of the link being shareable.
+    loadSceneFromLocation();
 
     updateObjectCount();
     updateZoomDisplay();
@@ -327,6 +348,21 @@ const sketch = (p: p5) => {
 
     presetSelect.addEventListener('change', () => {
       loadPreset(presetSelect.value);
+      // Choosing a scene makes the address bar shareable without pressing
+      // anything: the short form is a dozen characters.
+      writeLocation(encodeScene({ preset: presetSelect.value }));
+      setShareStatus('');
+    });
+
+    shareBtn.addEventListener('click', () => {
+      void shareCurrentScene();
+    });
+
+    // A pasted link on the page you are already looking at changes the fragment
+    // without reloading, and so do the back and forward buttons.
+    window.addEventListener('hashchange', () => {
+      if (window.location.hash.slice(1) === lastWrittenHash) return;
+      loadSceneFromLocation();
     });
 
     integratorSelect.addEventListener('change', () => {
@@ -366,6 +402,155 @@ const sketch = (p: p5) => {
       isPaused = !isPaused;
       pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
     });
+  }
+
+  /**
+   * The scene as it stands right now: where every body actually is, not where
+   * it started.
+   *
+   * That is the useful thing to share — "look at what this turned into" — and
+   * it is why saving is a button rather than something that happens when a
+   * preset loads.
+   */
+  function currentScene(): SavedScene {
+    return {
+      bodies: engine.particles.map((particle) => ({
+        x: particle.position.x,
+        y: particle.position.y,
+        mass: particle.mass,
+        vx: particle.velocity.x,
+        vy: particle.velocity.y,
+      })),
+      camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
+      trailLength: sceneTrailLength,
+      showVectorField: showVectorsCheckbox.checked,
+      showParticleVectors: showParticleVectorsCheckbox.checked,
+      showTrails: showTrailsCheckbox.checked,
+      integrator: engine.integrator,
+      collisionMode: engine.collisionMode,
+      forceMode: engine.forceMode,
+      adaptiveStepping: engine.adaptiveStepping,
+    };
+  }
+
+  /**
+   * Put a saved scene into the running simulation.
+   *
+   * Every field is optional and an absent one is left alone, so a scene that is
+   * only `s=binary` loads a preset and a scene with bodies but no camera keeps
+   * the camera where it is.
+   */
+  function applyScene(scene: SavedScene): void {
+    if (scene.preset !== undefined) {
+      if (!getPreset(scene.preset)) {
+        setShareStatus(`No scene called "${scene.preset}"`);
+        return;
+      }
+      presetSelect.value = scene.preset;
+      loadPreset(scene.preset);
+    }
+
+    if (scene.integrator !== undefined) {
+      engine.integrator = scene.integrator;
+      integratorSelect.value = scene.integrator;
+    }
+    if (scene.collisionMode !== undefined) {
+      engine.collisionMode = scene.collisionMode;
+      collisionSelect.value = scene.collisionMode;
+    }
+    if (scene.forceMode !== undefined) {
+      engine.forceMode = scene.forceMode;
+      forceModeSelect.value = scene.forceMode;
+    }
+    if (scene.adaptiveStepping !== undefined) {
+      engine.adaptiveStepping = scene.adaptiveStepping;
+      adaptiveSteppingCheckbox.checked = scene.adaptiveStepping;
+    }
+
+    if (scene.trailLength !== undefined) sceneTrailLength = scene.trailLength;
+
+    if (scene.showVectorField !== undefined) {
+      showVectorsCheckbox.checked = scene.showVectorField;
+      renderer.showVectorField = scene.showVectorField;
+    }
+    if (scene.showParticleVectors !== undefined) {
+      showParticleVectorsCheckbox.checked = scene.showParticleVectors;
+      renderer.showParticleVectors = scene.showParticleVectors;
+    }
+    if (scene.showTrails !== undefined) {
+      showTrailsCheckbox.checked = scene.showTrails;
+      renderer.showTrails = scene.showTrails;
+    }
+
+    if (scene.bodies) {
+      engine.clearParticles();
+      for (const body of scene.bodies) {
+        const particle = new Particle(body.x, body.y, body.mass, body.vx, body.vy);
+        particle.maxTrailLength = sceneTrailLength;
+        engine.addParticle(particle);
+      }
+      updateObjectCount();
+    }
+
+    if (scene.camera) {
+      camera.resetCameraTo(scene.camera.zoom);
+      camera.x = scene.camera.x;
+      camera.y = scene.camera.y;
+      updateZoomDisplay();
+    }
+  }
+
+  /** Load whatever scene the address bar is carrying, if it is carrying one. */
+  function loadSceneFromLocation(): void {
+    const fragment = window.location.hash.slice(1);
+    if (fragment === '') return;
+
+    const result = decodeScene(decodeURIComponent(fragment));
+    if ('error' in result) {
+      // Say so rather than silently showing the default scene, or the link
+      // looks like it worked and quietly did not.
+      setShareStatus(`Could not read that link: ${result.error}`);
+      return;
+    }
+
+    applyScene(result.scene);
+    setShareStatus(result.scene.bodies ? 'Loaded the scene from this link' : '');
+  }
+
+  /**
+   * Write a scene into the address bar without adding a history entry.
+   *
+   * `replaceState` rather than assigning to `location.hash`: choosing four
+   * scenes in a row should not mean pressing Back four times to leave.
+   */
+  function writeLocation(encoded: string): void {
+    lastWrittenHash = encoded;
+    window.history.replaceState(null, '', `#${encoded}`);
+  }
+
+  async function shareCurrentScene(): Promise<void> {
+    const encoded = encodeScene(currentScene());
+    writeLocation(encoded);
+
+    const url = window.location.href;
+    const size =
+      url.length > COMFORTABLE_LINK_LENGTH
+        ? ` (${url.length} characters — long for a link, but it is in the address bar)`
+        : '';
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareStatus(`Link copied${size}`);
+    } catch {
+      // Clipboard access needs a secure context and the browser's permission,
+      // and neither is guaranteed. The link is in the address bar either way,
+      // which is the part that matters.
+      setShareStatus(`Link is in the address bar${size}`);
+    }
+  }
+
+  function setShareStatus(message: string): void {
+    shareStatus.textContent = message;
   }
 
   /**

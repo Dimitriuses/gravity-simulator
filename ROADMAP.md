@@ -131,32 +131,46 @@ the step rule and the drawing cost are the frame's remaining superlinear parts
 
 ---
 
-## M4 — Save, load, and share
+## M4 — Save, load, and share — **done**
 
-Nothing the user builds survives a refresh. This is the last big gap in what the
-demo can do, which is why it stays at the top.
+Nothing the user built used to survive a refresh.
 
-- ~~A small library of preset scenes.~~ **Done.** Six, in
-  [`src/presets.ts`](src/presets.ts): a circular binary, a star with two
-  planets, the figure-eight choreography, an eccentric comet, a hyperbolic
-  slingshot, and a 300-body galaxy. They are data plus the orbit arithmetic that
-  makes them orbit — `v = sqrt(G·M/r)`, vis-viva, and the Chenciner–Montgomery
-  initial conditions rescaled to this engine's `G` — and `tests/presets.test.ts`
-  runs each one through the engine to check it against its own description.
-- **Serialization** — *medium*. Positions, velocities, masses, camera and render
-  settings out to a string and back. The scene already has a clean data
-  representation in `PresetBody`, so the shape of it is decided; what is not is
-  how much of the UI state belongs in a saved scene, and the answer is probably
-  "everything a preset can set", since presets already carry zoom, trail length
-  and which overlays to draw.
-- **The URL fragment** — *small, once serialization exists*. This is what makes
-  the demo shareable: "here is the configuration I built" as a link. Preset ids
-  are already stable strings chosen with that in mind, so `#scene=figure-eight`
-  is the cheap half and works without the serializer.
-- **A Lagrange-point preset** — *small*. Left out of M2's preset work because
-  L4/L5 stability needs a mass ratio above 24.96 and a long quiet run to show
-  anything. Adaptive stepping (M1) removed half that objection; the other half
-  is that it needs the patience of a viewer who will not give it.
+- ~~A small library of preset scenes.~~ **Done.** Seven, in
+  [`src/presets.ts`](src/presets.ts), each one data plus the orbit arithmetic
+  that makes it orbit, and each one run through the engine in
+  `tests/presets.test.ts` to check it against its own description.
+- ~~**Serialization.**~~ **Done.** [`src/serialization.ts`](src/serialization.ts)
+  writes a scene as plain `key=value` text — bodies, camera, trail length,
+  overlays and the physics settings — and reads it back. Six significant digits
+  per number, which is far more than the simulation's own accuracy and keeps a
+  body inside forty characters.
+- ~~**The URL fragment.**~~ **Done.** Choosing a scene puts `#v=1;s=comet` in
+  the address bar, and **Copy Link** puts the live scene there — where every
+  body actually is, not where it started — and copies the URL. Opening either
+  restores it, and so does pasting one into a page already open.
+- ~~A Lagrange-point preset.~~ **Done.** Two primaries at a mass ratio of 50 and
+  two trojans at L4 and L5. Measured over 20 orbits they librate between 58.0
+  and 60.3 degrees from the secondary; at ratio 25, either side of the 24.96
+  threshold the theory gives, they wander by twenty degrees and keep going.
+
+The format is plain text rather than base64-wrapped JSON because a link that
+arrives mangled should be diagnosable by looking at it. **Decoding treats its
+input as hostile**: unknown keys are ignored so a later version can add fields,
+a version from the future is refused rather than guessed at, and every number,
+enum and body count is checked before anything is applied. A bad link says what
+was wrong with it instead of quietly showing the default scene.
+
+**Still open**, and small:
+
+- **Nothing is saved automatically.** A refresh without pressing Copy Link still
+  loses the scene. `localStorage` would fix it in a few lines; what it needs
+  first is a decision about whether a returning visitor wants their last scene
+  or the default one, and that is a question about the demo rather than the
+  code.
+- **The scene dropdown does not know it has been overridden.** Load a link with
+  bodies in it and the dropdown still names whatever preset it named before. The
+  status line says the scene came from a link, which covers it, but the honest
+  fix is an explicit "(from link)" entry.
 
 ## M5 — Making the field readable, and affordable
 

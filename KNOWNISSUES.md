@@ -106,10 +106,24 @@ The consequence: arrow length compares bodies against each other **within one
 frame**, and cannot be compared between frames or read as an absolute value.
 There is no scale bar. Roadmap M5.
 
-## Everything is lost on refresh
+## Nothing is saved unless you ask for it
 
-No save, no load, no URL state. Building an interesting configuration and
-reloading loses it. Roadmap M4.
+A scene can be written into the address bar and restored from it — **Copy Link**
+does that, and choosing a preset puts its short form there (roadmap M4, done).
+What does not happen is automatic saving: refresh without copying the link and
+the scene is gone. `localStorage` would cover it, and the open question is
+whether a returning visitor wants their last scene or the default one.
+
+Two smaller edges:
+
+- A link carrying a full scene does not update the scene dropdown, which goes on
+  naming whichever preset it named before. The status line says the scene came
+  from a link.
+- A link is as long as the scene is: about 210 characters for a four-body scene,
+  and about 55 per body after that. The 300-body galaxy is roughly 16,000
+  characters, which is fine in the address bar and too long for most chat
+  clients. Above 2,000 characters the app says so rather than pretending
+  otherwise.
 
 ## Performance ceiling
 

@@ -144,6 +144,55 @@ const eightVelocityScale = EIGHT_LENGTH / EIGHT_TIME;
 /** One full figure-eight, in simulation steps. Used by the tests. */
 export const FIGURE_EIGHT_PERIOD_STEPS = EIGHT_PERIOD_UNITS * EIGHT_TIME;
 
+// ─── Lagrange points ─────────────────────────────────────────────────────────
+// Two primaries on a circular mutual orbit, and two negligible bodies sitting
+// at L4 and L5 — the corners of the equilateral triangles the pair makes. The
+// whole configuration rotates rigidly, so in the frame turning with it nothing
+// moves at all.
+//
+// L4 and L5 are only *linearly stable* when the primaries' mass ratio is above
+// 24.96, which is why the numbers below are what they are. Measured over 20
+// orbits at ratio 50: the trojans librate between 58.0 and 60.3 degrees from
+// the secondary, as seen from the primary — they wobble around their points and
+// stay. At ratio 25, either side of the threshold, they wander by twenty
+// degrees and keep going. The trojans also have to be negligible: at mass 50
+// rather than 5 the configuration comes apart inside ten orbits.
+const LAGRANGE_PRIMARY_MASS = 5000;
+const LAGRANGE_SECONDARY_MASS = 100; // ratio 50, comfortably above 24.96
+const LAGRANGE_TROJAN_MASS = 5;
+const LAGRANGE_SEPARATION = 400;
+
+function lagrangeBodies(): PresetBody[] {
+  const total = LAGRANGE_PRIMARY_MASS + LAGRANGE_SECONDARY_MASS;
+
+  // Angular velocity of the pair: omega² = G·(M + m) / d³.
+  const omega = Math.sqrt((SIMULATION_G * total) / LAGRANGE_SEPARATION ** 3);
+
+  // Barycentre at the origin, primaries on the x axis.
+  const primaryX = -LAGRANGE_SEPARATION * (LAGRANGE_SECONDARY_MASS / total);
+  const secondaryX = LAGRANGE_SEPARATION * (LAGRANGE_PRIMARY_MASS / total);
+
+  // The apex of the equilateral triangle on each side.
+  const apexX = (primaryX + secondaryX) / 2;
+  const apexY = (Math.sqrt(3) / 2) * LAGRANGE_SEPARATION;
+
+  // Everything turns together about the barycentre, so v = omega x r.
+  const rigid = (x: number, y: number, mass: number): PresetBody => ({
+    x,
+    y,
+    mass,
+    vx: -omega * y,
+    vy: omega * x,
+  });
+
+  return [
+    rigid(primaryX, 0, LAGRANGE_PRIMARY_MASS),
+    rigid(secondaryX, 0, LAGRANGE_SECONDARY_MASS),
+    rigid(apexX, apexY, LAGRANGE_TROJAN_MASS),
+    rigid(apexX, -apexY, LAGRANGE_TROJAN_MASS),
+  ];
+}
+
 // ─── Galaxy ──────────────────────────────────────────────────────────────────
 // The scene the quadtree exists for. Every body is on a circular orbit about
 // the centre, so the disc holds its shape rather than dispersing, and every
@@ -309,6 +358,18 @@ export const PRESETS: Preset[] = [
         vy: apoapsisSpeed(STAR_MASS, COMET_APHELION, COMET_PERIHELION),
       },
     ]),
+  },
+  {
+    id: 'lagrange',
+    name: 'Lagrange points',
+    summary: 'Two bodies orbiting, and two trojans parked at L4 and L5',
+    // The triangle is 692 units tall against a 400-unit separation, so the
+    // scene is taller than it is wide and wants the margin.
+    zoom: 0.9,
+    // One full orbit of the pair, which is what makes the trojans' libration
+    // about their points visible rather than inferred.
+    trailLength: 1000,
+    bodies: balanced(lagrangeBodies()),
   },
   {
     id: 'galaxy',

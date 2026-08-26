@@ -34,11 +34,15 @@ inferred from how things move.
 - **Scales to hundreds of bodies** through a Barnes-Hut quadtree, which answers
   the net force on a body, the field at a sample point, which bodies are
   touching, and how finely the frame needs slicing — all from one tree.
-- **Six starting scenes** — a circular binary, a star with two planets, the
-  figure-eight three-body choreography, an eccentric comet, a hyperbolic
-  slingshot, and a 300-body galaxy. Every velocity is derived from the orbit
-  equation for the simulator's own `G`, and each scene is run through the engine
-  in the test suite to prove it still orbits thousands of steps later.
+- **Seven starting scenes** — a circular binary, a star with two planets, the
+  figure-eight three-body choreography, an eccentric comet, trojans parked at
+  the L4 and L5 Lagrange points, a hyperbolic slingshot, and a 300-body galaxy.
+  Every velocity is derived from the orbit equation for the simulator's own `G`,
+  and each scene is run through the engine in the test suite to prove it still
+  orbits thousands of steps later.
+- **Scenes travel in a link.** **Copy Link** writes the live configuration —
+  every body where it actually is, plus the camera and the physics settings —
+  into the URL fragment, and opening that URL restores it.
 - **Two field sampling modes.** *Adaptive* concentrates samples near bodies,
   where the field has structure, using four density zones and deduplicating
   where zones overlap. *Uniform* lays a regular lattice across the view, which
@@ -76,7 +80,8 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
-| **Reload Scene** | Rebuild the current scene from scratch |
+| **Reload** | Rebuild the current scene from scratch |
+| **Copy Link** | Put the scene as it stands into the address bar, and on the clipboard |
 | **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
@@ -100,6 +105,7 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   │     └── forces         the softened force law, and accelerations at any positions
   ├── collisions        merge / bounce / pass through, at contact distance
   ├── quadtree          Barnes-Hut: forces, field, contacts, step size
+  ├── serialization     scenes as text, for the URL fragment
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
@@ -121,6 +127,13 @@ needs, from its dynamical and crossing timescales. A wide orbit asks for one, so
 the common case costs nothing; a tight pass gets sub-stepped instead of silently
 degrading. [`INTEGRATORS.md`](INTEGRATORS.md) has the full comparison —
 `npm run compare` regenerates it.
+
+**A shared link is untrusted input.** Decoding treats it that way: unknown keys
+are ignored so a later version of the format can add fields, a version from the
+future is refused rather than guessed at, and every number, setting and body
+count is validated before any of it is applied. A link that cannot be read says
+what was wrong with it rather than quietly showing the default scene, which
+would look exactly like the link having worked.
 
 **One tree, four questions.** The quadtree in
 [`src/quadtree.ts`](src/quadtree.ts) is built once per force evaluation and then
@@ -173,7 +186,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 160 unit tests, headless, ~8s
+npm test            # 178 unit tests, headless, ~13s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -192,16 +205,16 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 57 properties, including that the background is the intended navy, that
+asserts 66 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
 dropdown loads a live configuration, that switching integration scheme
 mid-flight keeps the simulation running, that the particle list notices a body
 that merged away without anyone clicking anything, that a three-hundred-body
-scene loads and animates on the tree, and that the two left-hand panels stay
-clear of each other in a short window. Every one of those corresponds to a
-defect that had shipped.
+scene loads and animates on the tree, that a shared link reopens the scene it
+was made from, and that the two left-hand panels stay clear of each other in a
+short window. Every one of those corresponds to a defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
@@ -237,9 +250,8 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   normalized logarithmically against the range present in the current frame.
   They compare bodies within a frame; they are not an absolute scale, and there
   is no scale bar.
-- **Nothing persists.** No save, load or URL state — the scene dropdown gives
-  you somewhere to start, but a configuration you build yourself is gone on
-  refresh.
+- **Nothing is saved automatically.** A scene travels in a link, but only if you
+  press Copy Link first; a plain refresh still loses it.
 - **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
   The page runs on a phone but cannot be panned or zoomed.
 - **Hundreds of bodies, not thousands.** The quadtree took the frame from
@@ -253,10 +265,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers scenes encoded in the URL
-so a configuration can be linked, and field readability work (scale bar,
-equipotential contours, streamlines) — plus what is deliberately deferred, and
-why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers field readability work
+(scale bar, equipotential contours, streamlines), contact physics beyond merging
+(rotation, swept detection), and the costs that are still superlinear — plus
+what is deliberately deferred, and why.
 
 ## Licence
 

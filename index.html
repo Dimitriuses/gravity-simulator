@@ -137,7 +137,14 @@
       Scene:
       <select id="presetSelect" style="margin-left: 5px; padding: 2px; max-width: 150px;"></select>
     </label>
-    <button id="reloadPresetBtn" style="width: 100%; margin-top: 0;">Reload Scene</button>
+    <!-- Paired on one row rather than stacked: the panel is a single column and
+         every full-width button pushes Clear All and Pause closer to the fold.
+         See KNOWNISSUES.md. -->
+    <div style="display: flex; gap: 4px; margin-top: 4px;">
+      <button id="reloadPresetBtn" style="flex: 1; margin-top: 0;">Reload</button>
+      <button id="shareBtn" style="flex: 1; margin-top: 0; background: #3f7fd0;">Copy Link</button>
+    </div>
+    <div id="shareStatus" style="font-size: 11px; color: #666; margin-top: 4px; min-height: 14px;"></div>
     <div class="section">New Bodies</div>
     <label>
       Mass: <span id="massValue">200</span>
@@ -203,8 +210,10 @@
         </select>
       </label>
     </div>
-    <button id="clearBtn">Clear All</button>
-    <button id="pauseBtn">Pause</button>
+    <div style="display: flex; gap: 4px;">
+      <button id="clearBtn" style="flex: 1;">Clear All</button>
+      <button id="pauseBtn" style="flex: 1;">Pause</button>
+    </div>
   </div>
   
   <div id="info">

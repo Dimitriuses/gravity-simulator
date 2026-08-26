@@ -42,14 +42,15 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   │     └── forces      the softened force law; accelerations at any positions
   ├── collisions     merge / bounce / pass through, resolved at contact
   ├── quadtree       Barnes-Hut: forces, field, contacts, step size
+  ├── serialization  scenes as text, for saving and for the URL fragment
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 160 tests run under Node in about eight seconds
-with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
+plain TypeScript, which is why 178 tests run under Node in about thirteen
+seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
 way: if a physics change seems to need p5, the abstraction is in the wrong place.
@@ -271,6 +272,36 @@ points × 3 bodies) put the app at **30fps**; banded, the same picture holds
 59.9fps. That is what makes a trail long enough to show a closed orbit
 affordable at all. If you lengthen a preset's trail, measure the frame rate
 rather than assuming.
+
+### A link is input from a stranger, and is decoded like one
+
+`decodeScene()` never half-applies anything. It validates the version, every
+number, every enum and the body count before the caller sees a scene, and
+returns a *reason* on failure so the UI can say what was wrong. Three rules
+follow from that and are easy to break by accident:
+
+- **Unknown keys are ignored, not rejected**, so a later version can add fields
+  without every older build refusing the link.
+- **A version from the future is refused, not guessed at.** The same letters may
+  mean something different in v2, and quietly misreading them is worse than
+  saying no.
+- **Bounds are checked because they are reachable from outside**: a mass of zero
+  puts an infinity into the state on the first step, and a body count in the
+  millions hangs the tab. `MAX_DECODED_BODIES` is not paranoia, it is the only
+  thing between a pasted link and the browser.
+
+The format is plain `key=value;` text rather than base64-wrapped JSON so that a
+mangled link can be diagnosed by looking at it, and it uses only characters a
+URL fragment accepts unescaped — `tests/serialization.test.ts` asserts that with
+`encodeURI(text) === text` rather than trusting it.
+
+### Writing the fragment uses `replaceState`, and remembers what it wrote
+
+Choosing four scenes in a row should not mean pressing Back four times to leave
+the page, so the address bar is updated with `history.replaceState` rather than
+by assigning to `location.hash`. The app also keeps the last fragment it wrote,
+because the `hashchange` listener has to tell a link someone pasted from the
+app's own writes — without that, every scene load triggers a reload of itself.
 
 ### A scene's overlays are part of its setup, and are always applied
 
