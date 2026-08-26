@@ -118,25 +118,25 @@ legend now prints the two ends of the range on screen — strong and weak, in
 force per unit mass — and updates them every frame (roadmap M5). What remains:
 
 - **Lengths are still frame-relative.** Two frames cannot be compared by eye,
-  only by the numbers beside them, and there is still no ruler on the canvas
-  itself. Roadmap M11.
-- **Individual contour lines are unlabelled.** The legend gives the range of
-  potentials drawn; no line says which level it is. Roadmap M11.
+  only by the numbers beside them. Distance, at least, now has a ruler: a bar
+  along the bottom of the canvas reading a round number of world units.
 
 ## Nothing is saved unless you ask for it
 
 A scene can be written into the address bar and restored from it — **Copy Link**
 does that, and choosing a preset puts its short form there (roadmap M4, done).
-What does not happen is automatic saving: refresh without copying the link and
-the scene is gone. `localStorage` would cover it, and the open question is
-whether a returning visitor wants their last scene or the default one. Roadmap
-M11.
+The scene is also written to `localStorage` every couple of seconds. A return
+visit still opens on the **default** scene and offers the saved one back as a
+button, rather than restoring it silently: the demo should open on the scene it
+was designed to open on, and a half-merged galaxy someone left running is a poor
+front page.
+
+Storage can be full or disabled outright, in which case nothing is saved and
+nothing is offered. That failure is silent by design — it is not worth
+interrupting a simulation for.
 
 Two smaller edges:
 
-- A link carrying a full scene does not update the scene dropdown, which goes on
-  naming whichever preset it named before. The status line says the scene came
-  from a link.
 - A link is as long as the scene is: about 210 characters for a four-body scene,
   and about 55 per body after that. The 300-body galaxy is roughly 16,000
   characters, which is fine in the address bar and too long for most chat
@@ -204,16 +204,17 @@ touch version needs its own interaction design rather than a polyfill.
 
 The control panel is capped at `calc(100vh - 210px)` and scrolls internally
 below that, so it can never collide with the bottom-left info panel. Its natural
-height is 566px including padding, so below about **776px** of viewport height
+height is 455px including padding, so below about **665px** of viewport height
 you have to scroll inside the panel to reach the lower controls. (Until the
 mouse-target fix, the wheel could not scroll it: the canvas claimed every wheel
 event in the page before deciding whether it was over the canvas.)
 
 Every control added to the panel raises that threshold, which is the cost of a
-single column. The Physics section is a `<details>` collapsed by default for
-exactly this reason: expanded it pushes Clear All and Pause past the bottom of
-an 800px window, so expanding it there means scrolling for them. The smoke test
-checks that the collapsed default keeps the buttons in view. Roadmap M11.
+single column. Render Settings, Camera and Physics are therefore `<details>`
+closed by default, which took the panel from 584px to 455px and the threshold
+from 776px down to 665px; the smoke test measures both at boot. Opening all
+three at once still pushes Clear All and Pause past the fold in an 800px window.
+Roadmap M9.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

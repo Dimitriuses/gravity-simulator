@@ -36,6 +36,19 @@ const MAX_LISTED_PARTICLES = 40;
  */
 const COMFORTABLE_LINK_LENGTH = 2000;
 
+/**
+ * Where the last scene is kept between visits, and how often it is written.
+ *
+ * Every two seconds rather than every frame: the scene is serialized and
+ * handed to synchronous storage, and nobody needs a crash to lose less than
+ * two seconds of a simulation they can rebuild in one click.
+ */
+const SAVED_SCENE_KEY = 'gravity-simulator/last-scene';
+const AUTOSAVE_INTERVAL_MS = 2000;
+
+/** The dropdown entry that appears when a scene did not come from the list. */
+const CUSTOM_SCENE_VALUE = '__custom__';
+
 /** Typed lookup — every one of these ids exists in index.html. */
 function el<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -72,6 +85,8 @@ const sketch = (p: p5) => {
    * a link someone pasted into the address bar.
    */
   let lastWrittenHash = '';
+  /** When the scene was last written to storage. */
+  let lastSavedAt = 0;
 
   // HTML controls
   const massSlider = el<HTMLInputElement>('massSlider');
@@ -159,6 +174,7 @@ const sketch = (p: p5) => {
 
     updateSubStepDisplay();
     updateLegend();
+    autosave();
     // Merging removes bodies without anyone clicking anything, which the
     // particle list had never had to cope with: until collisions existed the
     // only way to lose a body was to press its delete button.
@@ -176,6 +192,10 @@ const sketch = (p: p5) => {
     }
 
     camera.reset();
+
+    // After the reset, so the ruler is measured in screen pixels: it is the one
+    // thing on the canvas whose size must not scale with the world.
+    renderer.drawScaleBar();
   };
 
   p.mousePressed = (event?: MouseEvent) => {
@@ -512,6 +532,10 @@ const sketch = (p: p5) => {
     }
 
     if (scene.bodies) {
+      // Bodies in a scene mean it is not any of the presets, whatever the
+      // dropdown last said.
+      if (scene.preset === undefined) showCustomScene();
+
       engine.clearParticles();
       scene.bodies.forEach((body, index) => {
         const particle = new Particle(body.x, body.y, body.mass, body.vx, body.vy);
@@ -536,10 +560,68 @@ const sketch = (p: p5) => {
     }
   }
 
+  /**
+   * Keep the current scene in local storage, at most every couple of seconds.
+   *
+   * Cheap insurance against a refresh: the scene is already serializable for
+   * the sake of links, so this is the same string in a different place.
+   * Failures are swallowed — storage can be full, or disabled entirely in a
+   * private window, and neither is a reason to stop simulating.
+   */
+  function autosave(): void {
+    const now = Date.now();
+    if (now - lastSavedAt < AUTOSAVE_INTERVAL_MS) return;
+    lastSavedAt = now;
+
+    if (engine.particles.length === 0) return;
+
+    try {
+      window.localStorage.setItem(SAVED_SCENE_KEY, encodeScene(currentScene()));
+    } catch {
+      // Nothing to do about it, and nothing worth interrupting the frame for.
+    }
+  }
+
+  /**
+   * Offer the previous scene back, rather than restoring it silently.
+   *
+   * The demo should open on the scene it was designed to open on — a first
+   * impression is worth more than a returning visitor's convenience, and a
+   * half-merged galaxy someone left running is a poor front page. So the saved
+   * scene is a button, not a default.
+   */
+  function offerSavedScene(): void {
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(SAVED_SCENE_KEY);
+    } catch {
+      return;
+    }
+
+    if (!saved || 'error' in decodeScene(saved)) return;
+
+    const restore = document.createElement('button');
+    restore.textContent = 'Restore last scene';
+    restore.style.cssText =
+      'margin-top: 0; padding: 2px 6px; font-size: 11px; background: #6b7f95;';
+    restore.addEventListener('click', () => {
+      const result = decodeScene(saved as string);
+      if ('error' in result) return;
+
+      applyScene(result.scene);
+      setShareStatus('Restored the scene from your last visit');
+    });
+
+    shareStatus.replaceChildren('Left over from last time: ', restore);
+  }
+
   /** Load whatever scene the address bar is carrying, if it is carrying one. */
   function loadSceneFromLocation(): void {
     const fragment = window.location.hash.slice(1);
-    if (fragment === '') return;
+    if (fragment === '') {
+      offerSavedScene();
+      return;
+    }
 
     const result = decodeScene(decodeURIComponent(fragment));
     if ('error' in result) {
@@ -586,6 +668,8 @@ const sketch = (p: p5) => {
   }
 
   function setShareStatus(message: string): void {
+    // `textContent` also removes the restore button, which is what should
+    // happen: once anything else has been said, the offer is stale.
     shareStatus.textContent = message;
   }
 
@@ -676,6 +760,35 @@ const sketch = (p: p5) => {
   }
 
   /**
+   * Say, in the dropdown itself, that what is on screen did not come from it.
+   *
+   * A link carrying bodies used to leave the dropdown naming whichever preset it
+   * named before, which is a control lying about its own state. The entry is
+   * added on demand and removed the moment a real scene is chosen, so it never
+   * appears in the list of things you can pick.
+   */
+  function showCustomScene(): void {
+    let option = presetSelect.querySelector<HTMLOptionElement>(
+      `option[value="${CUSTOM_SCENE_VALUE}"]`
+    );
+
+    if (!option) {
+      option = document.createElement('option');
+      option.value = CUSTOM_SCENE_VALUE;
+      option.textContent = 'Custom scene';
+      presetSelect.append(option);
+    }
+
+    presetSelect.value = CUSTOM_SCENE_VALUE;
+  }
+
+  function clearCustomScene(): void {
+    presetSelect
+      .querySelector<HTMLOptionElement>(`option[value="${CUSTOM_SCENE_VALUE}"]`)
+      ?.remove();
+  }
+
+  /**
    * Replace the scene with a preset and frame the camera on it.
    *
    * Leaves the pause state alone — loading a scene while paused is a reasonable
@@ -684,6 +797,8 @@ const sketch = (p: p5) => {
   function loadPreset(id: string): void {
     const preset = getPreset(id);
     if (!preset) return;
+
+    clearCustomScene();
 
     engine.clearParticles();
     for (const particle of presetParticles(preset)) {

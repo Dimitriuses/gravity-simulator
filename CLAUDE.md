@@ -44,6 +44,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── quadtree       Barnes-Hut: forces, field, contacts, step size
   ├── serialization  scenes as text, for saving and for the URL fragment
   ├── contours       marching squares over any scalar field
+  ├── scalebar       the round number the canvas ruler measures
   ├── streamlines    evenly spaced curves through any vector field
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
@@ -51,7 +52,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 234 tests run under Node in about nineteen
+plain TypeScript, which is why 239 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -263,6 +264,30 @@ Cells near a body therefore refine regardless of the readings, down to the same
 fine spacing the zone-based mode uses. If you touch the refinement rule, the
 test to keep is *"reaches every body, including one too small to bend the field
 around it"* — the count and the cost are the easy half.
+
+### The ruler is drawn after the camera transform is reset
+
+`Renderer.drawScaleBar()` is called from `main` *after* `camera.reset()`, and it
+is the only drawing that happens there. Everything else is drawn in world
+coordinates and scales with the view; the ruler is the one thing whose length on
+screen must stay put while the world moves underneath it.
+
+Its length comes from `scalebar.ts`, which is free of p5 so the arithmetic can
+be tested in Node like the rest of the core. The rule it enforces is that the
+number under the bar is always one a person would have chosen — 1, 2, 5 and
+their decades — because a ruler reading "137 units" is a ruler nobody trusts.
+
+### A saved scene is offered, never restored behind the viewer's back
+
+The scene is written to `localStorage` every couple of seconds, but a return
+visit opens on the **default** scene with a *Restore last scene* button. The
+demo's opening scene is its first impression, and a half-merged galaxy someone
+left running is a poor one; the returning visitor's work is one click away
+instead of imposed on everybody.
+
+Reads and writes are both wrapped in try/catch and fail silently. Storage can be
+full, or disabled outright in a private window, and neither is a reason to
+interrupt a running simulation.
 
 ### A frame-relative picture needs its numbers printed
 

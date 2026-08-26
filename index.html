@@ -154,21 +154,29 @@
       Vector Range: <span id="rangeValue">150</span>px
       <input type="range" id="rangeSlider" min="100" max="500" value="150" step="50">
     </label>
-    <div class="section">Render Settings</div>
-    <label>
-      Object Size: <span id="objectSizeValue">1.0</span>x
-      <input type="range" id="objectSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
-    </label>
-    <label>
-      Arrow Size: <span id="arrowSizeValue">1.0</span>x
-      <input type="range" id="arrowSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
-    </label>
-    <div class="section">Camera</div>
-    <div style="font-size: 11px; margin: 5px 0; color: #666;">
-      Zoom: <span id="zoomValue">100</span>%<br>
-      <span style="font-size: 10px;">Scroll wheel to zoom<br>Middle-click or Ctrl+drag to pan</span>
-    </div>
-    <button id="resetCameraBtn" style="width: 100%; margin-top: 5px;">Reset Camera</button>
+    <!-- Sizes and the camera fold away, and Physics below them: a single
+         column cannot show everything at once, and these are the sections a
+         viewer sets once and leaves. What stays open is what gets used while
+         watching — the mass of the next body, the overlays, the field mode, and
+         the buttons. See KNOWNISSUES.md on the panel's height budget. -->
+    <details class="section" id="renderSection">
+      <summary>Render Settings</summary>
+      <label>
+        Object Size: <span id="objectSizeValue">1.0</span>x
+        <input type="range" id="objectSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
+      </label>
+      <label>
+        Arrow Size: <span id="arrowSizeValue">1.0</span>x
+        <input type="range" id="arrowSizeSlider" min="0.3" max="3.0" value="1.0" step="0.1">
+      </label>
+    </details>
+    <details class="section" id="cameraSection">
+      <summary>Camera</summary>
+      <div style="font-size: 11px; margin: 5px 0; color: #666; font-weight: normal;">
+        <span style="font-size: 10px;">Scroll wheel to zoom<br>Middle-click or Ctrl+drag to pan</span>
+      </div>
+      <button id="resetCameraBtn" style="width: 100%; margin-top: 5px;">Reset Camera</button>
+    </details>
     <label>
       <input type="checkbox" id="showVectors" checked> Show Vector Field
     </label>
@@ -227,6 +235,7 @@
     <strong>Drag</strong> to add velocity<br>
     Objects: <span id="objectCount">0</span> &nbsp; Sub-steps: <span id="subStepCount">1</span>
     &nbsp; Forces: <span id="forceModeLabel">exact</span>
+    &nbsp; Zoom: <span id="zoomValue">100</span>%
     <div id="particleList" style="margin-top: 8px; max-height: 105px; overflow-y: auto;">
       <!-- Particle list will be populated here -->
     </div>

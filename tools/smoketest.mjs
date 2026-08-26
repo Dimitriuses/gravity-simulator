@@ -138,6 +138,28 @@ try {
     const c = document.querySelector('canvas');
     return { w: c.width, h: c.height };
   });
+  // The panel's default shape, measured before anything in this run opens a
+  // section: a single column cannot show every control at once, so the ones a
+  // viewer sets and leaves are folded, and what is left has to fit.
+  const panel = await page.evaluate(() => {
+    const controls = document.getElementById('controls').getBoundingClientRect();
+    const pause = document.getElementById('pauseBtn').getBoundingClientRect();
+
+    return {
+      height: Math.round(controls.height),
+      buttonsVisible: pause.bottom <= controls.bottom + 1,
+      folded: ['renderSection', 'cameraSection', 'physicsSection'].filter(
+        (id) => !document.getElementById(id).open
+      ).length,
+    };
+  });
+  check(
+    'the panel folds what is set once and keeps the rest in view',
+    panel.buttonsVisible && panel.folded === 3 && panel.height < 500,
+    `${panel.height}px tall, ${panel.folded}/3 sections folded, ` +
+      `pause button visible=${panel.buttonsVisible}`
+  );
+
   check(
     'canvas fills the window',
     canvasSize.w >= VIEWPORT.width - 2 && canvasSize.h >= VIEWPORT.height - 2,
@@ -339,6 +361,10 @@ try {
   const zoomedIn = await page.evaluate(() => document.getElementById('zoomValue').textContent);
   check('mouse wheel zooms in', Number(zoomedIn) > 100, `zoom=${zoomedIn}%`);
 
+  await page.evaluate(() => {
+    // Reset Camera lives in a folded section; a real user would open it too.
+    document.getElementById('cameraSection').open = true;
+  });
   await page.click('#resetCameraBtn');
   await page.waitForTimeout(400);
   const reset = await page.evaluate(() => document.getElementById('zoomValue').textContent);
@@ -587,6 +613,9 @@ try {
 
     // A satellite close-up: force arrow towards the primary, velocity along
     // the orbit.
+    await page.evaluate(() => {
+      document.getElementById('renderSection').open = true;
+    });
     await setSlider('#arrowSizeSlider', 1.4);
     await wheel(760, 480, 7); // ~1.9x, framed on a satellite
     await shot('05-particle-vectors.png');
@@ -722,19 +751,6 @@ try {
     'the scheme dropdown is populated and defaults to velocity Verlet',
     schemes.options.length === 3 && schemes.selected === 'verlet' && schemes.adaptive,
     `options=[${schemes.options.join(', ')}], selected=${schemes.selected}, adaptive=${schemes.adaptive}`
-  );
-
-  // Collapsed by default on purpose: open, the section is tall enough to push
-  // Clear All and Pause past the bottom of an 800px window.
-  const buttonsVisible = await page.evaluate(() => {
-    const panel = document.getElementById('controls').getBoundingClientRect();
-    const pause = document.getElementById('pauseBtn').getBoundingClientRect();
-    return pause.bottom <= panel.bottom + 1;
-  });
-  check(
-    'the physics section starts collapsed, keeping the buttons in view',
-    schemes.collapsed && buttonsVisible,
-    `collapsed=${schemes.collapsed}, pause button fully visible=${buttonsVisible}`
   );
 
   await page.click('#physicsSection > summary');
@@ -1161,6 +1177,88 @@ try {
     'a link that is not a scene says so, and the app still runs',
     /could not read/i.test(broken.status ?? '') && Number(broken.count) > 0,
     `status="${broken.status}", ${broken.count} bodies`
+  );
+
+  // ── The ruler, and the scenes that outlive a visit ─────────────────────────
+  // The arithmetic behind the ruler is proved in tests/scalebar.test.ts. What
+  // only exists here is whether it reaches the canvas, and whether it is still
+  // there after the world scales underneath it.
+  await openLink(BASE);
+  const rulerPixels = () => onCanvas(countNear, { rgb: [150, 165, 190], tol: 25 });
+
+  const rulerAtRest = await rulerPixels();
+  await page.mouse.move(700, 400);
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100);
+  await page.waitForTimeout(700);
+  const rulerZoomed = await rulerPixels();
+
+  check(
+    'a ruler is drawn, and survives zooming',
+    rulerAtRest > 100 && rulerZoomed > 100,
+    `${rulerAtRest} pixels at 100%, ${rulerZoomed} after zooming in`
+  );
+
+  // A scene that came from a link is not any of the presets, and the dropdown
+  // should stop claiming otherwise.
+  await openLink(`${BASE}#v=1;b=-100,0,400,0,0.3|100,0,400,0,-0.3`);
+  const custom = await page.evaluate(() => ({
+    value: document.getElementById('presetSelect').value,
+    label: document.getElementById('presetSelect').selectedOptions[0]?.textContent,
+    bodies: document.getElementById('objectCount').textContent,
+  }));
+  check(
+    'a scene from a link says so in the dropdown',
+    custom.value === '__custom__' && custom.bodies === '2',
+    `dropdown reads "${custom.label}", ${custom.bodies} bodies`
+  );
+
+  await page.selectOption('#presetSelect', 'comet');
+  await page.waitForTimeout(600);
+  const afterPreset = await page.evaluate(() =>
+    [...document.getElementById('presetSelect').options].some((o) => o.value === '__custom__')
+  );
+  check(
+    'and the entry goes away once a real scene is chosen',
+    afterPreset === false,
+    `custom entry still present=${afterPreset}`
+  );
+
+  // Autosave, and the offer to bring it back. The demo should still open on its
+  // own opening scene: a half-merged galaxy someone left running is a poor
+  // front page, so the saved scene is a button rather than a default.
+  await page.mouse.click(950, 250);
+  await page.waitForTimeout(3000);
+
+  const stored = await page.evaluate(() => localStorage.getItem('gravity-simulator/last-scene'));
+  check(
+    'the scene is saved without being asked',
+    typeof stored === 'string' && stored.startsWith('v=1;'),
+    stored ? `${stored.length} characters stored` : 'nothing stored'
+  );
+
+  await openLink(BASE);
+  const returning = await page.evaluate(() => ({
+    scene: document.getElementById('presetSelect').value,
+    bodies: document.getElementById('objectCount').textContent,
+    offered: !!document.querySelector('#shareStatus button'),
+  }));
+  check(
+    'a return visit opens on the default scene, and offers the old one back',
+    returning.scene === 'binary' && returning.bodies === '2' && returning.offered,
+    `opened on "${returning.scene}" with ${returning.bodies} bodies, ` +
+      `restore offered=${returning.offered}`
+  );
+
+  await page.click('#shareStatus button');
+  await page.waitForTimeout(800);
+  const restored2 = await page.evaluate(() => ({
+    bodies: document.getElementById('objectCount').textContent,
+    status: document.getElementById('shareStatus').textContent,
+  }));
+  check(
+    'and restores it when asked',
+    Number(restored2.bodies) === 3 && /Restored/.test(restored2.status ?? ''),
+    `${restored2.bodies} bodies, status "${restored2.status}"`
   );
 
   // ── Console hygiene ────────────────────────────────────────────────────────

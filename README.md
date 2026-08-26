@@ -46,9 +46,11 @@ inferred from how things move.
   Every velocity is derived from the orbit equation for the simulator's own `G`,
   and each scene is run through the engine in the test suite to prove it still
   orbits thousands of steps later.
-- **Scenes travel in a link.** **Copy Link** writes the live configuration —
-  every body where it actually is, plus the camera and the physics settings —
-  into the URL fragment, and opening that URL restores it.
+- **Scenes travel in a link, and survive a refresh.** **Copy Link** writes the
+  live configuration — every body where it actually is, plus the camera and the
+  physics settings — into the URL fragment, and opening that URL restores it.
+  The scene is also saved locally as you watch: a return visit opens on the
+  default scene and offers the old one back, rather than restoring it silently.
 - **Six ways to draw the field.** Three arrow modes — *gradient* (the default,
   which subdivides only where the field changes), *adaptive* (four density zones
   per body) and *uniform* (a regular lattice) — plus **equipotential contours**,
@@ -58,6 +60,8 @@ inferred from how things move.
 - **A legend that says what the colours are worth.** Arrow length and hue are
   normalized against the range present in each frame, so the legend prints that
   range — strong and weak, in force per unit mass — and updates it every frame.
+  A ruler along the bottom of the canvas gives distance the same treatment, in a
+  round number of world units, and contour lines carry their own levels.
 - **Per-body vectors** — net gravitational force (orange) and velocity (cyan),
   drawn on each body.
 - **Camera** — wheel zoom about the cursor (10%–500%) and drag-to-pan. The field
@@ -221,7 +225,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 234 unit tests, headless, ~19s
+npm test            # 239 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -240,7 +244,7 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 76 properties, including that the background is the intended navy, that
+asserts 82 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -301,10 +305,9 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers interface polish and
-persistence, what contact physics still lacks, the frame costs that are left,
-checking the simulation against real ephemeris data, and housekeeping — plus
-what is deliberately deferred, and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers what contact physics still
+lacks, the frame costs that are left, checking the simulation against real
+ephemeris data, and housekeeping — plus what is deliberately deferred, and why.
 
 ## Licence
 

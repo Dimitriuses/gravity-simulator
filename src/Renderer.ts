@@ -2,6 +2,8 @@ import p5 from 'p5';
 import { PhysicsEngine } from './PhysicsEngine';
 import { Particle } from './Particle';
 import { Vector2D } from './Vector2D';
+import type { ContourLine } from './contours';
+import { niceScaleLength } from './scalebar';
 
 /**
  * Shortest and longest a particle's force/velocity arrow may be drawn, in world
@@ -53,6 +55,23 @@ const MIN_SPUN_DIAMETER_PX = 10;
 
 /** The radius line that shows which way a body is facing. */
 const COLOR_SPIN_MARKER = [40, 60, 110] as const;
+
+/** On-screen size of a contour's level label. */
+const CONTOUR_LABEL_PX = 10;
+
+/** Two significant figures, which is all a label on a line has room for. */
+function formatLevel(value: number): string {
+  const [mantissa, exponent] = Math.abs(value).toExponential(1).split('e');
+  const power = Number(exponent);
+  return power === 0 ? mantissa : `${mantissa}e${power}`;
+}
+
+/** The ruler along the bottom of the canvas. */
+const COLOR_SCALE_BAR = [150, 165, 190] as const;
+
+/** How far above the bottom edge the ruler sits. */
+const SCALE_BAR_MARGIN_PX = 28;
+
 
 /**
  * HSV to RGB, for the one place that writes pixels directly.
@@ -229,7 +248,54 @@ export class Renderer {
       }
     }
 
+    this.drawContourLabels(lines);
     this.p.pop();
+  }
+
+  /**
+   * Write the level on every other contour, near the middle of the view.
+   *
+   * The legend gives the range of potentials on screen; it cannot say which
+   * line is which. Labelling all of them is clutter — every other one is enough
+   * to read the gradient, and choosing the segment nearest the middle height of
+   * the view lines the labels up in a rough ladder, the way a contour map does
+   * it.
+   */
+  private drawContourLabels(lines: ContourLine[]): void {
+    const view = this.engine.vectorField.lastView;
+    if (!view) return;
+
+    const middleY = (view.minY + view.maxY) / 2;
+
+    this.p.textAlign(this.p.CENTER, this.p.CENTER);
+    // Constant on screen: a world-space size would be unreadable when zoomed
+    // out and enormous when zoomed in.
+    this.p.textSize(CONTOUR_LABEL_PX / this.zoom);
+    this.p.noStroke();
+
+    for (let i = 0; i < lines.length; i += 2) {
+      const line = lines[i];
+
+      // The segment closest to the middle height, so the labels sit in a row.
+      let best = null as { x: number; y: number } | null;
+      let bestDistance = Infinity;
+
+      for (const segment of line.segments) {
+        const x = (segment.from.x + segment.to.x) / 2;
+        const y = (segment.from.y + segment.to.y) / 2;
+        const distance = Math.abs(y - middleY);
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = { x, y };
+        }
+      }
+
+      if (!best) continue;
+
+      this.p.fill(0, 0, 100, 75);
+      this.p.text(formatLevel(line.level), best.x, best.y);
+    }
   }
 
   /**
@@ -632,6 +698,43 @@ export class Renderer {
       if (particle.radius < smallestLabelled) continue;
       this.p.text(Math.round(particle.mass), particle.position.x, particle.position.y);
     }
+  }
+
+  /**
+   * A ruler along the bottom of the canvas: a bar of known world length, with
+   * the length written under it.
+   *
+   * Everything else in the picture is relative. Arrow length is normalized
+   * against the frame, body radius follows mass rather than anything the viewer
+   * chose, and the zoom readout is a percentage of an arbitrary starting point —
+   * so nothing on screen answered "how far apart are those two?" until this.
+   *
+   * **Drawn in screen space**, so it must be called after the camera transform
+   * has been reset; the whole point is that its length on screen stays put
+   * while the world scales underneath it.
+   */
+  drawScaleBar(): void {
+    const { length, label } = niceScaleLength(this.zoom);
+    const pixels = length * this.zoom;
+
+    const right = this.p.width / 2 + pixels / 2;
+    const left = this.p.width / 2 - pixels / 2;
+    const y = this.p.height - SCALE_BAR_MARGIN_PX;
+
+    this.p.push();
+    this.p.stroke(...COLOR_SCALE_BAR);
+    this.p.strokeWeight(2);
+    this.p.line(left, y, right, y);
+    // End ticks, so the bar reads as a measurement rather than a divider.
+    this.p.line(left, y - 4, left, y + 4);
+    this.p.line(right, y - 4, right, y + 4);
+
+    this.p.noStroke();
+    this.p.fill(...COLOR_SCALE_BAR);
+    this.p.textAlign(this.p.CENTER, this.p.TOP);
+    this.p.textSize(11);
+    this.p.text(label, this.p.width / 2, y + 6);
+    this.p.pop();
   }
 
   /**
