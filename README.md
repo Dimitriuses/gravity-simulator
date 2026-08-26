@@ -301,9 +301,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers the costs that are still
-superlinear, checking the simulation against real ephemeris data, and
-housekeeping — plus what is deliberately deferred, and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers interface polish and
+persistence, what contact physics still lacks, the frame costs that are left,
+checking the simulation against real ephemeris data, and housekeeping — plus
+what is deliberately deferred, and why.
 
 ## Licence
 

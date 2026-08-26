@@ -85,14 +85,15 @@ What the model still does not include:
 - **Merging is perfectly inelastic and irreversible.** Mass, momentum and
   angular momentum are conserved exactly; kinetic energy is not, and nothing
   fragments. Two bodies that graze at high speed merge as readily as two that
-  settle together. Fragmentation is deferred — see roadmap M6.
+  settle together. Fragmentation is deferred — see roadmap M12.
 - **The sweep assumes straight-line motion within a sub-step.** It is exact for
   the step it is given, so what is left is the curvature the step itself
-  ignores, which adaptive stepping already bounds.
+  ignores, which adaptive stepping already bounds. Accepted rather than
+  scheduled — see roadmap M12.
 - **The positional correction is a fix-up, not physics.** Two bodies found
   overlapping are shoved apart along the contact normal, which perturbs momentum
   by a little. It only runs on an actual overlap, which swept detection has made
-  rare.
+  rare. Roadmap M12.
 - **Gravity applies no torque.** A body is a point mass to the force law, so
   spin changes only at contact — there are no tidal effects, and nothing spins
   up or down by orbiting.
@@ -118,9 +119,9 @@ force per unit mass — and updates them every frame (roadmap M5). What remains:
 
 - **Lengths are still frame-relative.** Two frames cannot be compared by eye,
   only by the numbers beside them, and there is still no ruler on the canvas
-  itself.
+  itself. Roadmap M11.
 - **Individual contour lines are unlabelled.** The legend gives the range of
-  potentials drawn; no line says which level it is.
+  potentials drawn; no line says which level it is. Roadmap M11.
 
 ## Nothing is saved unless you ask for it
 
@@ -128,7 +129,8 @@ A scene can be written into the address bar and restored from it — **Copy Link
 does that, and choosing a preset puts its short form there (roadmap M4, done).
 What does not happen is automatic saving: refresh without copying the link and
 the scene is gone. `localStorage` would cover it, and the open question is
-whether a returning visitor wants their last scene or the default one.
+whether a returning visitor wants their last scene or the default one. Roadmap
+M11.
 
 Two smaller edges:
 
@@ -164,8 +166,8 @@ What limits it now, in order:
   A dual-tree traversal is the next move.
 
 Turning off *Show Vector Field* still removes the single largest cost in most
-scenes. Full tables in [`SCALING.md`](SCALING.md); the sampling policy is
-roadmap M5 and the other two are roadmap M7.
+scenes. Full tables in [`SCALING.md`](SCALING.md); the remaining frame costs —
+the contour grid, the step rule and the drawing — are all roadmap M7.
 
 ## Barnes-Hut gives up exact momentum conservation
 
@@ -208,11 +210,10 @@ mouse-target fix, the wheel could not scroll it: the canvas claimed every wheel
 event in the page before deciding whether it was over the canvas.)
 
 Every control added to the panel raises that threshold, which is the cost of a
-single column. The Integration section is a `<details>` collapsed by default for
-exactly this reason: expanded it adds 52px, which at an 800px window pushes
-Clear All and Pause past the bottom. Expanding it there means scrolling for
-them. The smoke test checks that the collapsed default keeps the buttons in
-view.
+single column. The Physics section is a `<details>` collapsed by default for
+exactly this reason: expanded it pushes Clear All and Pause past the bottom of
+an 800px window, so expanding it there means scrolling for them. The smoke test
+checks that the collapsed default keeps the buttons in view. Roadmap M11.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

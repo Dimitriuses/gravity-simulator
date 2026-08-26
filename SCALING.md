@@ -197,6 +197,11 @@ body. It does not repeal the problem — three hundred bodies really is more
 structure, and by then it too is at the cap — but it moves the wall a long way,
 and the Galaxy preset is the scene that still cannot afford any of them.
 
+**Contours are the most expensive mode**, and the only one whose cost is set
+entirely by its own resolution rather than by the scene: every grid corner is a
+tree query, and the grid does not thin out where the potential is flat. Roadmap
+M7.
+
 **The step rule is the least improved.** Branch and bound cuts it by about 3.5x,
 not by an order of magnitude, because the bound is weak exactly when it matters:
 the answer being searched for is the shortest timescale in the system, so almost

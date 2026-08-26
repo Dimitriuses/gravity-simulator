@@ -1,7 +1,13 @@
 # Roadmap
 
-Where this project is going, and what is deliberately not being done. Ordered by
-what would most change the thing's usefulness, not by what is easiest.
+Where this project is going, and what is deliberately not being done.
+
+**The order of this document is the priority order** — what would most change
+the thing's usefulness, not what is easiest. **The numbers are just names.** They
+were renumbered once, when milestones were inserted in the middle, and every
+reference in every other file had to be chased down; they are stable identifiers
+now, so a milestone added later can carry a higher number and still sit near the
+top.
 
 Status is honest: items marked **blocked** have been attempted or investigated
 and the obstacle is named. Open items carry a size — **small** is an afternoon,
@@ -160,17 +166,8 @@ a version from the future is refused rather than guessed at, and every number,
 enum and body count is checked before anything is applied. A bad link says what
 was wrong with it instead of quietly showing the default scene.
 
-**Still open**, and small:
-
-- **Nothing is saved automatically.** A refresh without pressing Copy Link still
-  loses the scene. `localStorage` would fix it in a few lines; what it needs
-  first is a decision about whether a returning visitor wants their last scene
-  or the default one, and that is a question about the demo rather than the
-  code.
-- **The scene dropdown does not know it has been overridden.** Load a link with
-  bodies in it and the dropdown still names whatever preset it named before. The
-  status line says the scene came from a link, which covers it, but the honest
-  fix is an explicit "(from link)" entry.
+Left open: nothing is saved without pressing Copy Link, and the scene dropdown
+does not know when a link has overridden it. Both now **M11**.
 
 ## M5 — Making the field readable, and affordable — **done**
 
@@ -217,14 +214,8 @@ from. Measured on the Lagrange scene, both trojans got *no arrows at all* — a
 nearby, finds nothing to disagree with, and never looks closer. Cells near a
 body now refine regardless, to the same fine spacing the zone-based mode used.
 
-**Still open**, and small:
-
-- **The contour mode is the expensive one at scale** — 25.8 ms at 300 bodies,
-  against 13.8 for streamlines — because every grid corner is a tree query and
-  the grid does not thin out. It is the one mode whose cost is set entirely by
-  its own resolution.
-- **Nothing labels a contour with its value.** The legend gives the range; an
-  individual line does not say which level it is.
+Left open: the contour grid's cost does not thin out with distance (now **M7**),
+and no individual contour line says which level it is (now **M11**).
 
 ## M6 — Contact physics beyond merging — **done**
 
@@ -266,21 +257,76 @@ equal-and-opposite impulses applied at two different points do not conserve
 angular momentum. Measured, 1.6% of it vanished per bounce. Both arms now run to
 one shared contact point in the middle of the overlap.
 
-**Still open**, and both small:
+Left open: the positional correction is a fix-up rather than physics, and
+fragmentation was never started. Both now **M12**.
 
-- **The sweep assumes straight-line motion within a sub-step.** It is exact for
-  the step it is given, so the remaining error is the curvature the step itself
-  ignores — which adaptive stepping already bounds.
-- **The positional correction is not physics.** Shoving two overlapping bodies
-  apart perturbs momentum slightly. It only runs on an actual overlap, which
-  swept detection has made rare.
+## M11 — Interface polish and persistence
 
-## M7 — The costs that are still superlinear
+Five small things, each left behind by a milestone that had bigger fish. They
+are grouped because they are all the same *kind* of work — the interface telling
+the truth about what the simulation is doing — and because five afternoons in
+one direction is worth more than five scattered ones.
+
+- **Nothing is saved without being asked** — *small*. A refresh loses the scene
+  unless Copy Link was pressed first. `localStorage` is a few lines; the part
+  that is not code is deciding whether a returning visitor wants their last
+  scene or the default one. A demo that always opens on a galaxy someone left
+  running is a worse first impression than one that always opens on the binary.
+- **The scene dropdown does not know it has been overridden** — *small*. Load a
+  link carrying bodies and the dropdown still names whichever preset it named
+  before. The status line says the scene came from a link, which covers it, but
+  the honest fix is an explicit entry for it.
+- **No contour line says which level it is** — *small*. The legend gives the
+  range of potentials on screen; an individual line does not say where in that
+  range it sits. Labelling every line is clutter, so this is really a question
+  about which ones deserve one.
+- **No ruler on the canvas** — *small*. The legend now prints the field strengths
+  present in the frame, so the picture can be read in absolute terms, but arrow
+  *lengths* are still normalized per frame and there is no scale bar for
+  distance either. A bar reading "200 units" would settle both.
+- **The control panel is a single column** — *small*. It starts scrolling
+  internally below 776px of viewport height, and every control added lifts that
+  threshold: the Physics section is a collapsed `<details>` holding that line,
+  and opening it already pushes Clear All and Pause past the fold at 800px. The
+  rest of the panel wants the same treatment. There is still no *responsive*
+  behaviour — the panels do not reflow, they simply happen to be narrow enough
+  not to matter.
+
+## M12 — Contact physics, continued
+
+What M6 left on the table. The first item is a real defect with a known remedy;
+the second is a design problem wearing a physics problem's clothes.
+
+- **The positional correction is a fix-up, not physics** — *medium*. Two bodies
+  found overlapping are shoved apart along the contact normal, which perturbs
+  momentum and angular momentum by a little — the one part of a contact that
+  does not conserve what the rest of it carefully does. The standard remedy is
+  to fold the overlap into the impulse as a bias term rather than moving bodies
+  behind the solver's back. Swept detection has made an overlap rare, which is
+  why this is medium rather than urgent.
+- **Fragmentation** — *large*, and **still deferred**, for the reason it has
+  always been deferred: the fragments' number, sizes and velocities are all free
+  parameters, and conserving mass, momentum and energy through a break-up while
+  producing something that reads as a collision rather than confetti is a design
+  problem before it is a physics one. Merging is the easy direction and it is
+  the one that is done.
+
+**Accepted rather than open:** the sweep assumes each body travels in a straight
+line within a sub-step. It is exact for the step it is given, so what remains is
+the curvature the step itself ignores — which is the adaptive step rule's job,
+and it already bounds it. Recorded in [`KNOWNISSUES.md`](KNOWNISSUES.md) as a
+property rather than tracked here as a task.
+
+## M7 — The costs that are left
 
 M3 took the two obvious quadratic costs out of the frame. What it left behind is
 smaller, harder, and only worth doing if scenes get bigger than the Galaxy
-preset — which is why this sits below the two milestones that improve what the
+preset — which is why this sits below the milestones that improve what the
 simulator *does*.
+
+Not all of it is superlinear any more: the contour grid below costs the same
+whatever the body count, and is on this list because it is the most expensive
+thing a frame can be asked for, not because it scales badly.
 
 - **A dual-tree step rule** — *medium*. The adaptive step rule's branch-and-bound
   search returns exactly the pairwise answer but prunes weakly, because what it
@@ -295,6 +341,11 @@ simulator *does*.
   force evaluation needs positions extrapolated to a common one, and the
   integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming they do
   not.
+- **The contour grid does not thin out** — *medium*. Every grid corner is a tree
+  query and the resolution is fixed, so contours cost 25.8 ms at 300 bodies
+  against 13.8 for streamlines — the most expensive mode by some way. The same
+  trick the arrow grid already uses would work: subdivide where the potential is
+  actually curving and leave the flat ground coarse.
 - **Drawing** — *medium*. Roughly half of the Galaxy preset's frame is spent
   drawing rather than simulating. Batching by layer took 400 bodies from 83 ms
   to 22 ms; the glow pass is the next thing to go, and beyond that the honest
@@ -324,12 +375,6 @@ force law and the integrator together reproduce something nobody chose.
 - **`index.html` carries its styles and markup inline** — *small*. Fine at this
   size; it should be split now that the control panel has four sections and the
   stylesheet has grown past a screenful.
-- **The control panel is a single column** — *small*. It starts scrolling
-  internally below 776px of viewport height, and every control added lifts that
-  threshold. The Physics section is a collapsed `<details>` holding the line; the
-  rest of the panel wants the same treatment. There is still no *responsive*
-  behaviour: the panels do not reflow, they simply happen to be narrow enough
-  not to matter.
 - ~~The UI panels overlap each other in a small window.~~ **Done.** The overlap
   was vertical, not horizontal: the control panel is capped at
   `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of
