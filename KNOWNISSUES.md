@@ -113,18 +113,42 @@ reloading loses it. Roadmap M4.
 
 ## Performance ceiling
 
-Force computation is O(n²) in the number of bodies and the field sampler is O(n)
-per sample point, with up to 12,000 sample points a frame.
+Force computation and field sampling both go through a Barnes-Hut quadtree past
+128 bodies (roadmap M3), which moved the ceiling but did not remove it.
 
 Measured by `npm run smoketest` on the seeded two-body scene in headless
-Chromium: **59.9 fps, 16.7 ms/frame**. A three-body scene with the range slider
-at 300 rebuilds its field (1,267 samples) in 1.5 ms. Expect the frame rate to
-fall away somewhere in the low hundreds of bodies, sooner with the vector range
-slider at maximum.
+Chromium: **59.9 fps, 16.7 ms/frame**. Measured on the 300-body Galaxy preset in
+the same browser: **30 fps with the tree, 12 fps forced onto the exact sum**.
 
-Mitigations that already exist: the field is only sampled inside the visible
-region, sample count is capped, and turning off *Show Vector Field* removes the
-dominant cost entirely. The real fix is a Barnes–Hut quadtree — roadmap M3.
+What limits it now, in order:
+
+- **Drawing.** Hundreds of bodies means hundreds of circles, and roughly half of
+  the galaxy's frame is spent drawing rather than simulating.
+- **The field is sample-bound.** It samples up to 12,000 points regardless of
+  the body count, so it costs tens of milliseconds even in a small scene shown
+  at full range. The Galaxy preset turns it off for that reason; the cap was
+  chosen when the field was the only thing on screen.
+- **The adaptive step rule.** Its tree search returns exactly the pairwise
+  answer but prunes weakly, because what it is looking for is the shortest
+  timescale in the system and almost nothing can be excluded for being slower.
+  A dual-tree traversal is the next move.
+
+Turning off *Show Vector Field* still removes the single largest cost in most
+scenes. Full tables in [`SCALING.md`](SCALING.md).
+
+## Barnes-Hut gives up exact momentum conservation
+
+The approximation is not symmetric: body A may be close enough to see B
+individually while B is far enough to see A only as part of a cell, so their
+forces are not equal and opposite. Momentum then drifts — measured at under 1%
+of the system's total scalar momentum over 200 steps on a 200-body disc, against
+zero to machine precision for the exact pairwise sum.
+
+This is inherent to the method rather than a defect in this implementation, and
+it is why the exact solver remains the default below 128 bodies and can be
+forced at any size from the Physics section. Force error itself is small: at the
+default opening angle of 0.5, a median of 0.03% on a 256-body disc and 0.2% at
+2,048.
 
 ## Zooming out far in uniform mode coarsens the grid
 

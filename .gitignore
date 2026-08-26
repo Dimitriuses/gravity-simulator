@@ -32,5 +32,7 @@ Thumbs.db
 *.tmp
 .cache/
 
-# `npm run compare -- --write` scratch output; the kept copy is INTEGRATORS.md
+# `--write` scratch output from the measurement tools; the kept copies are
+# INTEGRATORS.md and SCALING.md
 INTEGRATORS.generated.md
+SCALING.generated.md

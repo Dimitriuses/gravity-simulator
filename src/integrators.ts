@@ -1,5 +1,6 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
+import { QuadTree } from './quadtree';
 
 /**
  * Integration schemes, and the adaptive step-size rule that decides how finely
@@ -158,6 +159,30 @@ export const INTEGRATOR_LABELS: ReadonlyArray<{ id: IntegratorName; label: strin
   { id: 'rk4', label: 'Runge-Kutta 4 (not symplectic)' },
 ];
 
+/** The pairwise scan: a minimum over every pair in the system. */
+function shortestInteractionTime(particles: Particle[], G: number): number {
+  let shortest = Infinity;
+
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const a = particles[i];
+      const b = particles[j];
+
+      const contactDistance = a.radius + b.radius;
+      const separation = Math.max(b.position.sub(a.position).magnitude(), contactDistance);
+
+      const dynamical = Math.sqrt(separation ** 3 / (G * (a.mass + b.mass)));
+
+      const relativeSpeed = b.velocity.sub(a.velocity).magnitude();
+      const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
+
+      shortest = Math.min(shortest, dynamical, crossing);
+    }
+  }
+
+  return shortest;
+}
+
 /**
  * Fraction of the shortest timescale in the system that one sub-step is allowed
  * to cover.
@@ -197,26 +222,16 @@ export function recommendedSubSteps(
   particles: Particle[],
   G: number,
   dt: number,
-  maxSubSteps: number = MAX_SUB_STEPS
+  maxSubSteps: number = MAX_SUB_STEPS,
+  tree: QuadTree | null = null
 ): number {
-  let shortest = Infinity;
-
-  for (let i = 0; i < particles.length; i++) {
-    for (let j = i + 1; j < particles.length; j++) {
-      const a = particles[i];
-      const b = particles[j];
-
-      const contactDistance = a.radius + b.radius;
-      const separation = Math.max(b.position.sub(a.position).magnitude(), contactDistance);
-
-      const dynamical = Math.sqrt(separation ** 3 / (G * (a.mass + b.mass)));
-
-      const relativeSpeed = b.velocity.sub(a.velocity).magnitude();
-      const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
-
-      shortest = Math.min(shortest, dynamical, crossing);
-    }
-  }
+  // The scan below is a minimum over every pair, and at a couple of thousand
+  // bodies it cost more than the rest of the frame together. Given a tree, the
+  // same minimum comes back from a branch-and-bound search — the same number,
+  // not an estimate of it.
+  const shortest = tree
+    ? tree.shortestInteractionTime(G)
+    : shortestInteractionTime(particles, G);
 
   // One body, or none: nothing accelerates, so one step is exact.
   if (!Number.isFinite(shortest)) return 1;

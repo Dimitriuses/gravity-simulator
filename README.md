@@ -31,6 +31,9 @@ inferred from how things move.
   slices a frame as finely as the closest pair needs.
 - **Contacts are resolved**: bodies merge on contact by default, conserving mass
   and momentum, or bounce inelastically, or pass through — whichever you pick.
+- **Scales to hundreds of bodies** through a Barnes-Hut quadtree, which answers
+  the net force on a body, the field at a sample point, which bodies are
+  touching, and how finely the frame needs slicing — all from one tree.
 - **Five starting scenes** — a circular binary, a star with two planets, the
   figure-eight three-body choreography, an eccentric comet and a hyperbolic
   slingshot. Every velocity is derived from the orbit equation for the
@@ -74,7 +77,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Clear All** / **Pause** | Empty the scene / freeze it |
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
 | **Reload Scene** | Rebuild the current scene from scratch |
-| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, or choose what happens on contact |
+| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Grid Mode* dropdown switches sampling mode. Bodies you add yourself inherit
@@ -96,6 +99,7 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   ├── integrators       Euler / Verlet / RK4 + the adaptive step rule
   │     └── forces         the softened force law, and accelerations at any positions
   ├── collisions        merge / bounce / pass through, at contact distance
+  ├── quadtree          Barnes-Hut: forces, field, contacts, step size
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
@@ -117,6 +121,16 @@ needs, from its dynamical and crossing timescales. A wide orbit asks for one, so
 the common case costs nothing; a tight pass gets sub-stepped instead of silently
 degrading. [`INTEGRATORS.md`](INTEGRATORS.md) has the full comparison —
 `npm run compare` regenerates it.
+
+**One tree, four questions.** The quadtree in
+[`src/quadtree.ts`](src/quadtree.ts) is built once per force evaluation and then
+answers the net force on each body, the field at each sample point, which bodies
+are close enough to touch, and how finely the frame has to be sliced. Only the
+first two are approximations — the contact query and the step-size search use
+the tree's bounds to prune a search whose answer is exactly what the pairwise
+scan would give, which the tests check directly. Setting the opening angle to
+zero makes the force sums exact too, and that is what the traversal is tested
+against.
 
 **Preset scenes are arithmetic, not coordinates.** A scene is initial
 conditions, and initial conditions typed in by hand do not orbit: the original
@@ -159,10 +173,11 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 138 unit tests, headless, ~3s
+npm test            # 160 unit tests, headless, ~8s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
+npm run bench       # scaling and quadtree accuracy -> SCALING.md
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
@@ -177,15 +192,16 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 49 properties, including that the background is the intended navy, that
+asserts 57 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
 dropdown loads a live configuration, that switching integration scheme
 mid-flight keeps the simulation running, that the particle list notices a body
-that merged away without anyone clicking anything, and that the two left-hand
-panels stay clear of each other in a short window. Every one of those
-corresponds to a defect that had shipped.
+that merged away without anyone clicking anything, that a three-hundred-body
+scene loads and animates on the tree, and that the two left-hand panels stay
+clear of each other in a short window. Every one of those corresponds to a
+defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
@@ -226,14 +242,21 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   refresh.
 - **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
   The page runs on a phone but cannot be panned or zoomed.
-- **O(n²) forces.** Fine at tens of bodies, not at thousands.
+- **Hundreds of bodies, not thousands.** The quadtree took the frame from
+  O(n²); what limits it now is drawing, and a field that samples up to 12,000
+  points however few bodies there are. The 300-body Galaxy preset holds 30fps in
+  Chromium. [`SCALING.md`](SCALING.md) has the tables.
+- **The tree is an approximation.** At the default opening angle its median
+  force error is around 0.03–0.2%, and because it is not symmetric it gives up
+  exact momentum conservation. The exact solver stays the default below 128
+  bodies and can be forced at any size.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers a Barnes–Hut quadtree, scenes encoded
-in the URL so a configuration can be linked, and field readability work (scale
-bar, equipotential contours, streamlines) — plus what is deliberately deferred,
-and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers scenes encoded in the URL
+so a configuration can be linked, and field readability work (scale bar,
+equipotential contours, streamlines) — plus what is deliberately deferred, and
+why.
 
 ## Licence
 

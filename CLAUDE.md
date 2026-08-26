@@ -19,6 +19,7 @@ entry in it corresponds to a bug that actually shipped.
 | `npm run screenshots` | the smoke test again, writing `screenshots/*.png` |
 | `npm run verify:install` | would CI's npm accept `package-lock.json`? |
 | `npm run compare` | integrator accuracy tables; `-- --write` dumps a file to paste into `INTEGRATORS.md` |
+| `npm run bench` | scaling and quadtree accuracy; `-- --write` dumps a file to paste into `SCALING.md` |
 
 `npm run dev` uses esbuild, which strips types without checking them. **A green
 dev server proves nothing about whether the project builds** — this is exactly
@@ -40,13 +41,14 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── integrators    Euler / Verlet / RK4, and the adaptive sub-step rule
   │     └── forces      the softened force law; accelerations at any positions
   ├── collisions     merge / bounce / pass through, resolved at contact
+  ├── quadtree       Barnes-Hut: forces, field, contacts, step size
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 138 tests run under Node in about three seconds
+plain TypeScript, which is why 160 tests run under Node in about eight seconds
 with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -124,6 +126,34 @@ moment of contact rather than stepping over it. Detection is still a discrete
 overlap test, so tunnelling is rare rather than impossible - pinned by a test
 that shows a 160-unit-per-frame pass tunnelling with adaptive stepping off and
 merging with it on.
+
+### The quadtree is exact at theta = 0, and that is how it is tested
+
+`QuadTree` approximates a distant group of bodies by its centre of mass when the
+cell's width over its distance is below `theta`. At `theta = 0` no cell ever
+passes that test, so every query walks down to individual bodies and the result
+is the direct sum to the last bit. `tests/quadtree.test.ts` checks exactly that
+before it checks anything about error bounds: an approximation whose exact case
+is wrong is not an approximation, it is a bug.
+
+Two of the tree's four uses are not approximations at all. Contact detection and
+the adaptive step-size search use the cells' bounds — widest body, heaviest
+body, fastest body — to prune searches whose answers are exactly what the
+pairwise scans give. Those bounds must stay *upper* bounds on what a cell can
+hold, or the pruning starts skipping the answer. Both are pinned against their
+scans.
+
+### Barnes-Hut is not symmetric, so it does not conserve momentum
+
+The pairwise sum applies equal and opposite forces, so total momentum is exact.
+The tree lets A see B individually while B sees A as part of a cell, and those
+two forces do not cancel. Under 1% drift over 200 steps on a 200-body disc,
+against zero for the exact sum.
+
+This is why `forceMode` defaults to `auto` and the exact solver is kept below
+`BARNES_HUT_THRESHOLD` (128 bodies) — a promise about exactness in the scenes
+the interface encourages, not a speed threshold. The tree is already faster at
+64 bodies.
 
 ### There is one force law, in `forces.ts`
 
@@ -216,6 +246,19 @@ engine for thousands of steps and asserts what it claims to be — separation
 bounds for the binary, orbital radii for the satellites, a closed curve for the
 figure eight, perihelion and aphelion for the comet. Add a preset, add its test.
 
+### Drawing is batched by layer, not by body
+
+`Renderer.drawParticles()` draws every glow, then every body, then every label,
+rather than all three per body. `fill()` and `stroke()` each build a colour
+object, and that state change is the cost: six per body became six per frame.
+The mass labels are skipped entirely when a body is under
+`MIN_LABELLED_DIAMETER_PX` on screen — `text()` is the most expensive call in
+the file, and at the galaxy preset's 22% zoom the labels were two pixels tall.
+Four hundred bodies went from 83 ms a frame to 22 ms.
+
+The renderer needs the camera's zoom to make that judgement, which is the only
+reason `Renderer.zoom` exists; main pushes it in each frame.
+
 ### Trails are drawn in bands, not one `line()` per point
 
 A trail fading along its length needs a `stroke()` before every segment, and
@@ -228,6 +271,15 @@ points × 3 bodies) put the app at **30fps**; banded, the same picture holds
 59.9fps. That is what makes a trail long enough to show a closed orbit
 affordable at all. If you lengthen a preset's trail, measure the frame rate
 rather than assuming.
+
+### A scene's overlays are part of its setup, and are always applied
+
+`loadPreset()` sets the vector-field and per-body-arrow checkboxes on every
+load, defaulting to on for scenes that do not say otherwise. It is tempting to
+apply them only when a preset asks — the galaxy is the only one that does — but
+then the galaxy's economies followed the user into whatever scene they loaded
+next, which arrives with a blank canvas and no way to tell why. Zoom and trail
+length already work this way.
 
 ### UI state is read from the DOM at startup, never duplicated in TypeScript
 

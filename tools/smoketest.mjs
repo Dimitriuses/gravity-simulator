@@ -535,18 +535,26 @@ try {
       count: Number(document.getElementById('objectCount').textContent),
       rows: document.querySelectorAll('.particle-item').length,
       zoom: Number(document.getElementById('zoomValue').textContent),
+      vectors: document.getElementById('showParticleVectors').checked,
     }));
     presetZooms.push(state.zoom);
 
     // Orange force arrows mean bodies that are still on screen and still
     // pulling on each other a second after loading. The bar is low because
     // arrows are drawn in world space: the slingshot loads at 50% zoom, where
-    // an arrow covers roughly a quarter of the pixels it would at 100%.
-    const orange = await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 });
+    // an arrow covers roughly a quarter of the pixels it would at 100%. A
+    // scene that switches the arrows off — the galaxy — is judged on whether
+    // its bodies are drawn at all instead.
+    const drawn = state.vectors
+      ? await onCanvas(countNear, { rgb: [255, 136, 0], tol: 60 })
+      : await onCanvas(countNear, { rgb: [150, 200, 255], tol: 60 });
+    const listed = Math.min(state.count, 40);
+
     check(
       `preset "${option.value}" loads a live scene`,
-      state.count >= 2 && state.rows === state.count && orange > 30,
-      `${state.count} bodies, ${state.rows} rows, zoom=${state.zoom}%, ${orange} force-arrow pixels`
+      state.count >= 2 && state.rows === listed && drawn > 30,
+      `${state.count} bodies, ${state.rows} rows, zoom=${state.zoom}%, ` +
+        `${drawn} ${state.vectors ? 'force-arrow' : 'body'} pixels`
     );
   }
 
@@ -650,6 +658,77 @@ try {
   await page.selectOption('#collisionSelect', 'merge');
   await page.locator('#massSlider').fill('200');
   await page.waitForTimeout(60);
+
+  // ── Scale ──────────────────────────────────────────────────────────────────
+  // The quadtree's accuracy is proved in tests/quadtree.test.ts, against the
+  // direct sum. What only exists here is a real frame: that a scene of a few
+  // hundred bodies loads, animates, and says which solver it is using.
+  const forceModes = await page.evaluate(() => ({
+    options: Array.from(document.querySelectorAll('#forceModeSelect option')).map((o) => o.value),
+    selected: document.getElementById('forceModeSelect').value,
+    label: document.getElementById('forceModeLabel').textContent,
+  }));
+  check(
+    'the force dropdown is populated and defaults to automatic',
+    forceModes.options.length === 3 && forceModes.selected === 'auto',
+    `options=[${forceModes.options.join(', ')}], selected=${forceModes.selected}`
+  );
+  check(
+    'a small scene is solved exactly',
+    forceModes.label === 'exact',
+    `readout says "${forceModes.label}"`
+  );
+
+  await page.selectOption('#presetSelect', 'galaxy');
+  await page.waitForTimeout(2500);
+
+  const galaxy = await page.evaluate(() => ({
+    count: Number(document.getElementById('objectCount').textContent),
+    forces: document.getElementById('forceModeLabel').textContent,
+    rows: document.querySelectorAll('.particle-item').length,
+    field: document.getElementById('showVectors').checked,
+    vectors: document.getElementById('showParticleVectors').checked,
+  }));
+  check(
+    'the galaxy loads hundreds of bodies and switches to the tree',
+    galaxy.count > 200 && galaxy.forces === 'tree',
+    `${galaxy.count} bodies, readout says "${galaxy.forces}"`
+  );
+  check(
+    'the scene turns off the per-body drawing it cannot afford',
+    galaxy.field === false && galaxy.vectors === false,
+    `field=${galaxy.field}, particle vectors=${galaxy.vectors}`
+  );
+  check(
+    'the particle list summarises instead of naming hundreds of bodies',
+    galaxy.rows > 0 && galaxy.rows <= 40,
+    `${galaxy.rows} rows for ${galaxy.count} bodies`
+  );
+
+  const galaxyA = await positionsWhile(600);
+  const galaxyB = await positionsWhile(600);
+  check('the galaxy animates', galaxyA !== galaxyB, `frame hashes ${galaxyA} / ${galaxyB}`);
+
+  // Forcing the exact solver on the same scene must still work — slower, but
+  // the point is that the switch is live.
+  await page.selectOption('#forceModeSelect', 'exact');
+  await page.waitForTimeout(1500);
+  const forcedExact = await page.evaluate(
+    () => document.getElementById('forceModeLabel').textContent
+  );
+  const exactA = await positionsWhile(700);
+  const exactB = await positionsWhile(700);
+  check(
+    'the exact solver can be forced on a large scene',
+    forcedExact === 'exact' && exactA !== exactB,
+    `readout says "${forcedExact}", frame hashes ${exactA} / ${exactB}`
+  );
+
+  await page.selectOption('#forceModeSelect', 'auto');
+  await page.selectOption('#presetSelect', 'binary');
+  await page.waitForTimeout(600);
+  await page.click('#clearBtn');
+  await page.waitForTimeout(200);
 
   // ── Collisions ─────────────────────────────────────────────────────────────
   // The conservation laws are proved in tests/collisions.test.ts. What only

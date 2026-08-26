@@ -9,7 +9,7 @@ import {
   getPreset,
   presetParticles,
 } from '../src/presets';
-import { PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
+import { BARNES_HUT_THRESHOLD, PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
 import { Vector2D } from '../src/Vector2D';
 
@@ -64,7 +64,9 @@ describe('preset catalogue', () => {
   it('asks for trails it can afford to draw', () => {
     for (const scene of PRESETS) {
       if (scene.trailLength === undefined) continue;
-      expect(scene.trailLength).toBeGreaterThan(0);
+      // Zero is a real answer: a scene with hundreds of bodies pays for each
+      // trail in stroke changes, and the galaxy asks for none.
+      expect(scene.trailLength).toBeGreaterThanOrEqual(0);
       // Trails are drawn in bands, so length costs vertices rather than state
       // changes — but a scene asking for tens of thousands of points would
       // still be a mistake rather than a decision.
@@ -241,6 +243,56 @@ describe('comet', () => {
     });
     const eccentricity = (furthest - closest) / (furthest + closest);
     expect(eccentricity).toBeGreaterThan(0.6);
+  });
+});
+
+describe('galaxy', () => {
+  it('holds its disc rather than dispersing or collapsing', () => {
+    const scene = preset('galaxy');
+    // Contacts off: this is a claim about the orbits, and merging would slowly
+    // eat the disc while the claim was being checked.
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    for (const particle of presetParticles(scene)) engine.addParticle(particle);
+
+    const core = engine.particles[0];
+    const radii = () =>
+      engine.particles.slice(1).map((p) => p.position.sub(core.position).magnitude());
+
+    const before = radii();
+    for (let i = 0; i < 150; i++) engine.step();
+    const after = radii();
+
+    // Every body started between 300 and 2,400 units out and should still be
+    // in that band: circular orbits, so radius is what does not change.
+    expect(Math.min(...before)).toBeGreaterThan(295);
+    expect(Math.max(...before)).toBeLessThan(2405);
+    expect(Math.min(...after)).toBeGreaterThan(250);
+    expect(Math.max(...after)).toBeLessThan(2600);
+
+    // And the core should not have wandered off.
+    expect(core.position.magnitude()).toBeLessThan(50);
+  }, 30000);
+
+  it('is big enough to be worth a tree, and uses one', () => {
+    const engine = new PhysicsEngine(30);
+    for (const particle of presetParticles(preset('galaxy'))) engine.addParticle(particle);
+
+    expect(engine.particles.length).toBeGreaterThanOrEqual(BARNES_HUT_THRESHOLD);
+    expect(engine.usingBarnesHut()).toBe(true);
+  });
+
+  it('is the same galaxy every time it is loaded', () => {
+    // Built from a seeded generator: a scene that reshuffled itself could not
+    // be tested, and could not be compared against itself after a change.
+    const first = presetParticles(preset('galaxy'));
+    const second = presetParticles(preset('galaxy'));
+
+    expect(first).toHaveLength(second.length);
+    for (let i = 0; i < first.length; i++) {
+      expect(first[i].position.x).toBe(second[i].position.x);
+      expect(first[i].mass).toBe(second[i].mass);
+    }
   });
 });
 

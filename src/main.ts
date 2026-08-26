@@ -6,6 +6,7 @@ import { Camera } from './Camera';
 import { DEFAULT_PRESET_ID, PRESETS, getPreset, presetParticles } from './presets';
 import { INTEGRATOR_LABELS, IntegratorName } from './integrators';
 import { COLLISION_MODE_LABELS, CollisionMode } from './collisions';
+import { FORCE_MODE_LABELS, ForceMode } from './PhysicsEngine';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -15,6 +16,14 @@ const FIELD_MARGIN_PX = 60;
 
 /** Drag pixels to world velocity. A full-screen drag is a fast shot. */
 const DRAG_TO_VELOCITY = 0.05;
+
+/**
+ * How many bodies the list names individually before summarising the rest.
+ *
+ * The panel is 250px wide and scrolls at 105px tall, so a list of hundreds was
+ * never readable; what it was, was expensive to rebuild.
+ */
+const MAX_LISTED_PARTICLES = 40;
 
 /** Typed lookup — every one of these ids exists in index.html. */
 function el<T extends HTMLElement>(id: string): T {
@@ -65,7 +74,9 @@ const sketch = (p: p5) => {
   const integratorSelect = el<HTMLSelectElement>('integratorSelect');
   const adaptiveSteppingCheckbox = el<HTMLInputElement>('adaptiveStepping');
   const collisionSelect = el<HTMLSelectElement>('collisionSelect');
+  const forceModeSelect = el<HTMLSelectElement>('forceModeSelect');
   const subStepCount = el('subStepCount');
+  const forceModeLabel = el('forceModeLabel');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
   const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
   const showTrailsCheckbox = el<HTMLInputElement>('showTrails');
@@ -91,6 +102,7 @@ const sketch = (p: p5) => {
     populatePresetOptions();
     populateIntegratorOptions();
     populateCollisionOptions();
+    populateForceModeOptions();
 
     setupUI();
     // Read the simulation's starting values out of the markup rather than
@@ -124,6 +136,7 @@ const sketch = (p: p5) => {
     }
 
     camera.apply();
+    renderer.zoom = camera.zoom;
     renderer.draw();
 
     if (isDrawingVelocity && velocityStart) {
@@ -257,6 +270,7 @@ const sketch = (p: p5) => {
     engine.integrator = integratorSelect.value as IntegratorName;
     engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
     engine.collisionMode = collisionSelect.value as CollisionMode;
+    engine.forceMode = forceModeSelect.value as ForceMode;
     loadPreset(presetSelect.value);
     renderer.showVectorField = showVectorsCheckbox.checked;
     renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
@@ -328,6 +342,10 @@ const sketch = (p: p5) => {
       engine.collisionMode = collisionSelect.value as CollisionMode;
     });
 
+    forceModeSelect.addEventListener('change', () => {
+      engine.forceMode = forceModeSelect.value as ForceMode;
+    });
+
     // `change` does not fire when the same option is picked again, so replaying
     // the current scene after pushing it around needs its own button.
     reloadPresetBtn.addEventListener('click', () => {
@@ -365,6 +383,23 @@ const sketch = (p: p5) => {
     }
 
     integratorSelect.value = engine.integrator;
+  }
+
+  /**
+   * Fill the force dropdown from `FORCE_MODE_LABELS`, selecting the engine's
+   * default.
+   */
+  function populateForceModeOptions(): void {
+    forceModeSelect.replaceChildren();
+
+    for (const mode of FORCE_MODE_LABELS) {
+      const option = document.createElement('option');
+      option.value = mode.id;
+      option.textContent = mode.label;
+      forceModeSelect.append(option);
+    }
+
+    forceModeSelect.value = engine.forceMode;
   }
 
   /**
@@ -424,6 +459,20 @@ const sketch = (p: p5) => {
 
     camera.resetCameraTo(preset.zoom);
 
+    // Overlays are part of a scene's setup, the same way its zoom and trail
+    // length are, and a scene that says nothing wants them on. Applying this on
+    // every load rather than only when a preset asks is what stops the galaxy's
+    // settings from following you into the next scene: it switches both off,
+    // and without this the scene loaded afterwards inherited a blank canvas
+    // with no indication why.
+    const wantsField = preset.showVectorField ?? true;
+    const wantsVectors = preset.showParticleVectors ?? true;
+
+    showVectorsCheckbox.checked = wantsField;
+    renderer.showVectorField = wantsField;
+    showParticleVectorsCheckbox.checked = wantsVectors;
+    renderer.showParticleVectors = wantsVectors;
+
     updateObjectCount();
     updateZoomDisplay();
   }
@@ -436,11 +485,18 @@ const sketch = (p: p5) => {
 
   /**
    * Rebuild the per-particle list with its delete buttons.
+   *
+   * Capped: a scene can now hold hundreds of bodies, and merging rebuilds this
+   * every time the count changes. Four hundred rows of DOM, thrown away and
+   * rebuilt several times a second, costs more than the simulation does.
    */
   function updateParticleList(): void {
     particleList.replaceChildren();
 
-    engine.particles.forEach((particle, index) => {
+    const shown = engine.particles.slice(0, MAX_LISTED_PARTICLES);
+    const hidden = engine.particles.length - shown.length;
+
+    shown.forEach((particle, index) => {
       const item = document.createElement('div');
       item.className = 'particle-item';
 
@@ -459,6 +515,13 @@ const sketch = (p: p5) => {
       item.append(info, deleteBtn);
       particleList.append(item);
     });
+
+    if (hidden > 0) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size: 11px; color: #666; padding: 4px;';
+      note.textContent = `...and ${hidden} more`;
+      particleList.append(note);
+    }
   }
 
   /**
@@ -472,6 +535,11 @@ const sketch = (p: p5) => {
   function updateSubStepDisplay(): void {
     const label = isPaused ? '—' : engine.lastSubSteps.toString();
     if (subStepCount.textContent !== label) subStepCount.textContent = label;
+
+    // Whether the approximation is in play is worth saying out loud, since on
+    // `auto` it switches itself on as a scene grows.
+    const forces = engine.usingBarnesHut() ? 'tree' : 'exact';
+    if (forceModeLabel.textContent !== forces) forceModeLabel.textContent = forces;
   }
 
   function updateZoomDisplay(): void {

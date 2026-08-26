@@ -12,6 +12,7 @@ import {
 import { PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
 import { Vector2D } from '../src/Vector2D';
+import { treeOf } from '../src/quadtree';
 
 /**
  * Two things need proving about an integrator, and they are different things:
@@ -310,6 +311,46 @@ describe('adaptive sub-stepping', () => {
 
     expect(count).toBeLessThanOrEqual(MAX_SUB_STEPS);
     expect(Number.isFinite(count)).toBe(true);
+  });
+
+  it('gets the same answer from the tree as from the pairwise scan', () => {
+    // The tree version is a branch-and-bound search for the same minimum, not
+    // an approximation of it, so it has to agree exactly — on scattered
+    // clouds, on a scene with one very close pair, and on one with a fast
+    // flyby, since the rule takes the smaller of two different timescales.
+    let state = 20240826;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+
+    const scenes: Particle[][] = [
+      Array.from({ length: 200 }, () =>
+        new Particle(
+          (random() - 0.5) * 4000,
+          (random() - 0.5) * 4000,
+          20 + random() * 900,
+          (random() - 0.5) * 8,
+          (random() - 0.5) * 8
+        )
+      ),
+      [...orbit(50), new Particle(4000, 4000, 100, 0, 0)],
+      [new Particle(0, 0, 5000, 0, 0), new Particle(-400, 0, 50, 160, 0)],
+      [new Particle(0, 0, 100), new Particle(0, 0, 100)],
+    ];
+
+    for (const [index, particles] of scenes.entries()) {
+      const scan = recommendedSubSteps(particles, SIMULATION_G, 1);
+      const searched = recommendedSubSteps(
+        particles,
+        SIMULATION_G,
+        1,
+        MAX_SUB_STEPS,
+        treeOf(particles)
+      );
+
+      expect(searched, `scene ${index}`).toBe(scan);
+    }
   });
 
   it('needs no sub-steps when nothing is interacting', () => {

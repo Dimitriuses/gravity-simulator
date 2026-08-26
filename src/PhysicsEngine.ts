@@ -10,6 +10,7 @@ import {
   recommendedSubSteps,
 } from './integrators';
 import { CollisionMode, resolveCollisions } from './collisions';
+import { DEFAULT_THETA, QuadTree, treeAt, treeOf } from './quadtree';
 
 /**
  * Gravitational constant. Not Newton's — a tuning value picked so that the
@@ -18,6 +19,27 @@ import { CollisionMode, resolveCollisions } from './collisions';
  * preset built against a different G is simply a scene that flies apart.
  */
 export const SIMULATION_G = 0.5;
+
+/** How forces are summed: over every pair, or through a Barnes-Hut tree. */
+export type ForceMode = 'exact' | 'barnes-hut' | 'auto';
+
+/** Labels for the UI, in the order they should appear. */
+export const FORCE_MODE_LABELS: ReadonlyArray<{ id: ForceMode; label: string }> = [
+  { id: 'auto', label: 'Auto (tree past 128)' },
+  { id: 'exact', label: 'Exact pairs' },
+  { id: 'barnes-hut', label: 'Barnes-Hut tree' },
+];
+
+/**
+ * Body count at which `auto` switches to the tree.
+ *
+ * Below this the direct sum is both faster and exact, so there is nothing to
+ * gain; the crossover measured in SCALING.md is around 100 bodies for the force
+ * sum. Keeping the exact solver for small scenes also keeps momentum conserved
+ * to machine precision in every scene the UI encourages, which the tree cannot
+ * promise — see quadtree.ts.
+ */
+export const BARNES_HUT_THRESHOLD = 128;
 
 /**
  * Physics engine that handles gravity calculations and updates
@@ -54,6 +76,20 @@ export class PhysicsEngine implements ForceField {
   /** Collision events resolved since the engine was created. Read by the UI. */
   collisionCount: number = 0;
 
+  /** How forces are summed. See `ForceMode`. */
+  forceMode: ForceMode = 'auto';
+
+  /** Barnes-Hut opening angle; 0 makes the tree exact. */
+  theta: number = DEFAULT_THETA;
+
+  /**
+   * The tree built by the last `computeForces()`, reused by the field sampler.
+   *
+   * Both want the same tree over the same positions, and building it is the
+   * expensive half of a query. Invalidated wherever `forcesDirty` is set.
+   */
+  private tree: QuadTree | null = null;
+
   /**
    * Whether `acceleration` and `netForce` are stale.
    *
@@ -74,7 +110,7 @@ export class PhysicsEngine implements ForceField {
    */
   addParticle(particle: Particle): void {
     this.particles.push(particle);
-    this.forcesDirty = true;
+    this.invalidateForces();
   }
 
   /**
@@ -84,7 +120,7 @@ export class PhysicsEngine implements ForceField {
     const index = this.particles.indexOf(particle);
     if (index > -1) {
       this.particles.splice(index, 1);
-      this.forcesDirty = true;
+      this.invalidateForces();
     }
   }
 
@@ -93,7 +129,25 @@ export class PhysicsEngine implements ForceField {
    */
   clearParticles(): void {
     this.particles = [];
+    this.invalidateForces();
+  }
+
+  /** Cached accelerations and the tree they came from are no longer usable. */
+  private invalidateForces(): void {
     this.forcesDirty = true;
+    this.tree = null;
+  }
+
+  /**
+   * Is the tree in use for this many bodies?
+   *
+   * Read by the UI, which says so on screen: the approximation is worth
+   * knowing about when it is switched on.
+   */
+  usingBarnesHut(): boolean {
+    if (this.forceMode === 'exact') return false;
+    if (this.forceMode === 'barnes-hut') return true;
+    return this.particles.length >= BARNES_HUT_THRESHOLD;
   }
 
   /**
@@ -111,6 +165,26 @@ export class PhysicsEngine implements ForceField {
     for (const particle of this.particles) {
       particle.resetForces();
     }
+
+    if (this.usingBarnesHut()) {
+      // Each body queries the tree for its own acceleration. Note what is lost:
+      // the pairwise loop below applies equal and opposite forces, so momentum
+      // is conserved exactly, while the tree may let A see B individually and B
+      // see A only as part of a cell. See quadtree.ts.
+      this.tree = treeOf(this.particles);
+
+      for (let i = 0; i < this.particles.length; i++) {
+        const particle = this.particles[i];
+        const acceleration = this.tree.accelerationOn(i, this.G, this.theta);
+
+        particle.acceleration = acceleration;
+        particle.netForce = acceleration.mult(particle.mass);
+      }
+
+      return;
+    }
+
+    this.tree = null;
 
     for (let i = 0; i < this.particles.length; i++) {
       for (let j = i + 1; j < this.particles.length; j++) {
@@ -133,6 +207,13 @@ export class PhysicsEngine implements ForceField {
 
   /** `ForceField`: accelerations for a trial configuration. Mutates nothing. */
   accelerationsAt(positions: Vector2D[]): Vector2D[] {
+    if (this.usingBarnesHut()) {
+      // A trial configuration is a different set of positions, so it needs its
+      // own tree — RK4 asks for three of these per step.
+      const trial = treeAt(this.particles, positions);
+      return positions.map((_, index) => trial.accelerationOn(index, this.G, this.theta));
+    }
+
     return accelerationsAt(this.particles, positions, this.G);
   }
 
@@ -157,10 +238,15 @@ export class PhysicsEngine implements ForceField {
    * waiting for the clock to start.
    */
   resolveCollisions(): number {
-    const events = resolveCollisions(this.particles, this.collisionMode);
+    const events = resolveCollisions(
+      this.particles,
+      this.collisionMode,
+      this.forceMode === 'exact' ? Infinity : BARNES_HUT_THRESHOLD
+    );
 
     if (events > 0) {
       this.collisionCount += events;
+      this.tree = null;
       // Merging changes the membership of the list and the masses in it;
       // bouncing changes positions. Either way every cached acceleration is
       // now wrong, and the integrator contract says they must not be.
@@ -181,9 +267,16 @@ export class PhysicsEngine implements ForceField {
    * notice the moment of contact, instead of stepping over it.
    */
   step(dt: number = 1): void {
-    this.lastSubSteps = this.adaptiveStepping
-      ? recommendedSubSteps(this.particles, this.G, dt, MAX_SUB_STEPS)
-      : 1;
+    if (this.adaptiveStepping) {
+      // The step rule wants the closest interacting pair, which the tree can
+      // find without visiting every pair. Positions and velocities have not
+      // changed since the last force evaluation, so its tree still describes
+      // the system exactly.
+      const tree = this.usingBarnesHut() ? (this.tree ?? treeOf(this.particles)) : null;
+      this.lastSubSteps = recommendedSubSteps(this.particles, this.G, dt, MAX_SUB_STEPS, tree);
+    } else {
+      this.lastSubSteps = 1;
+    }
 
     const subStep = dt / this.lastSubSteps;
     for (let i = 0; i < this.lastSubSteps; i++) {
@@ -206,7 +299,11 @@ export class PhysicsEngine implements ForceField {
    * can actually see rather than a fixed box around the origin.
    */
   updateField(view: ViewBounds): void {
-    this.vectorField.update(this.particles, this.G, view);
+    // Sampling is O(n) per sample point over thousands of points, so the field
+    // is usually the more expensive half of a frame — and it can share the tree
+    // the force pass just built, since nothing has moved since.
+    const tree = this.usingBarnesHut() ? (this.tree ?? treeOf(this.particles)) : null;
+    this.vectorField.update(this.particles, this.G, view, tree, this.theta);
   }
 
   /** Step the simulation and rebuild the field. */

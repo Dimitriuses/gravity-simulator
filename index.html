@@ -189,6 +189,10 @@
         Contact:
         <select id="collisionSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
       </label>
+      <label style="font-size: 11px;">
+        Forces:
+        <select id="forceModeSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
+      </label>
     </details>
     <div class="section" style="font-weight: normal;">
       <label style="font-size: 11px; margin-top: 0;">
@@ -207,6 +211,7 @@
     <strong>Click</strong> to add objects<br>
     <strong>Drag</strong> to add velocity<br>
     Objects: <span id="objectCount">0</span> &nbsp; Sub-steps: <span id="subStepCount">1</span>
+    &nbsp; Forces: <span id="forceModeLabel">exact</span>
     <div id="particleList" style="margin-top: 8px; max-height: 105px; overflow-y: auto;">
       <!-- Particle list will be populated here -->
     </div>

@@ -1,5 +1,6 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
+import { DEFAULT_THETA, QuadTree } from './quadtree';
 
 /**
  * Represents a single vector sample point in the field
@@ -102,16 +103,39 @@ export class VectorField {
    */
   private occupancy = new OccupancyGrid(1);
 
+  /**
+   * Barnes-Hut tree to sample through, or null to sum over every particle.
+   *
+   * Sampling is O(n) per sample point over several thousand points, so this is
+   * the other half of what the tree is for — the field is usually the more
+   * expensive of the two.
+   */
+  private tree: QuadTree | null = null;
+  private theta: number = DEFAULT_THETA;
+
   constructor(baseGridSize: number = 30) {
     this.baseGridSize = baseGridSize;
   }
 
   /**
    * Rebuild the field for the current particles and camera view.
+   *
+   * `tree`, when given, is used to evaluate the field instead of summing over
+   * particles. The sample *positions* still come from the particles themselves:
+   * adaptive mode walks rings around each body, which is a question about where
+   * to look rather than what is there.
    */
-  update(particles: Particle[], G: number = 1, view: ViewBounds): void {
+  update(
+    particles: Particle[],
+    G: number = 1,
+    view: ViewBounds,
+    tree: QuadTree | null = null,
+    theta: number = DEFAULT_THETA
+  ): void {
     this.samples = [];
     this.occupancy.clear();
+    this.tree = tree;
+    this.theta = theta;
 
     if (particles.length === 0) return;
 
@@ -252,6 +276,12 @@ export class VectorField {
    * mass does not appear.
    */
   private calculateForceAt(point: Vector2D, particles: Particle[], G: number): Vector2D {
+    if (this.tree) {
+      // Same softening and the same range cutoff, reached through the tree
+      // rather than by visiting every particle.
+      return this.tree.accelerationAt(point.x, point.y, G, this.theta, this.maxInfluenceRadius);
+    }
+
     let totalForce = new Vector2D(0, 0);
 
     for (const particle of particles) {

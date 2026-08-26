@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PhysicsEngine } from '../src/PhysicsEngine';
+import { BARNES_HUT_THRESHOLD, PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
 import type { ViewBounds } from '../src/VectorField';
 
@@ -153,5 +153,148 @@ describe('PhysicsEngine', () => {
       expect(p.position.y).toBe(before[i].y);
     });
     expect(engine.particles[0].netForce.magnitude()).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Barnes-Hut changes the answer, on purpose. These check the size of that
+ * change, and that switching to it is something the engine does deliberately
+ * rather than accidentally.
+ */
+describe('choosing between the exact sum and the tree', () => {
+  /** A disc of bodies, large enough to trip the automatic threshold. */
+  function disc(count: number): Particle[] {
+    let state = 987654321;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+
+    const core = 200000;
+    const bodies = [new Particle(0, 0, core)];
+
+    for (let i = 1; i < count; i++) {
+      const radius = 300 + Math.sqrt(random()) * 1700;
+      const angle = random() * Math.PI * 2;
+      const speed = Math.sqrt((SIMULATION_G * core) / radius);
+      bodies.push(
+        new Particle(
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius,
+          20 + random() * 40,
+          -Math.sin(angle) * speed,
+          Math.cos(angle) * speed
+        )
+      );
+    }
+
+    return bodies;
+  }
+
+  function engineOf(count: number, forceMode: 'exact' | 'barnes-hut' | 'auto') {
+    const engine = new PhysicsEngine(30);
+    engine.forceMode = forceMode;
+    engine.collisionMode = 'none';
+    for (const body of disc(count)) engine.addParticle(body);
+    return engine;
+  }
+
+  it('switches on automatically past the threshold, and not before', () => {
+    expect(engineOf(BARNES_HUT_THRESHOLD - 1, 'auto').usingBarnesHut()).toBe(false);
+    expect(engineOf(BARNES_HUT_THRESHOLD, 'auto').usingBarnesHut()).toBe(true);
+
+    // And the setting overrides the count in both directions.
+    expect(engineOf(4, 'barnes-hut').usingBarnesHut()).toBe(true);
+    expect(engineOf(500, 'exact').usingBarnesHut()).toBe(false);
+  });
+
+  it('follows the same trajectories as the exact sum', () => {
+    // Not identical - it is an approximation - but a scene run both ways should
+    // still be recognisably the same scene after a hundred steps.
+    const exact = engineOf(140, 'exact');
+    const tree = engineOf(140, 'barnes-hut');
+
+    for (let i = 0; i < 60; i++) {
+      exact.step();
+      tree.step();
+    }
+
+    const scale = 2000; // the disc's outer radius
+    let worst = 0;
+    for (let i = 0; i < exact.particles.length; i++) {
+      const drift = tree.particles[i].position.sub(exact.particles[i].position).magnitude();
+      worst = Math.max(worst, drift / scale);
+    }
+
+    expect(worst).toBeLessThan(0.02);
+    // Sized to stay well inside the default timeout: the *exact* side is what
+    // costs, and 200 bodies for 200 steps took six seconds on its own.
+  }, 30000);
+
+  it('gives up exact momentum conservation, and not much of it', () => {
+    // The trade the method makes: A may see B individually while B sees A only
+    // as part of a cell, so the pair's forces are not equal and opposite. The
+    // exact solver has no such drift, which is why it stays the default for
+    // scenes small enough to afford it.
+    const measure = (engine: PhysicsEngine) => {
+      const momentum = () =>
+        engine.particles.reduce(
+          (sum, p) => ({ x: sum.x + p.velocity.x * p.mass, y: sum.y + p.velocity.y * p.mass }),
+          { x: 0, y: 0 }
+        );
+      const scale = engine.particles.reduce(
+        (sum, p) => sum + p.mass * p.velocity.magnitude(),
+        0
+      );
+
+      const before = momentum();
+      for (let i = 0; i < 120; i++) engine.step();
+      const after = momentum();
+
+      return Math.hypot(after.x - before.x, after.y - before.y) / scale;
+    };
+
+    // Measured on a 140-body disc over 120 steps: 1.3e-16 exact, 7.8e-4 tree.
+    expect(measure(engineOf(140, 'exact'))).toBeLessThan(1e-12);
+    expect(measure(engineOf(140, 'barnes-hut'))).toBeLessThan(0.01);
+  }, 30000);
+
+  it('samples the same field through the tree as without it', () => {
+    const view: ViewBounds = { minX: -400, minY: -400, maxX: 400, maxY: 400 };
+    const exact = engineOf(200, 'exact');
+    const tree = engineOf(200, 'barnes-hut');
+
+    exact.computeForces();
+    tree.computeForces();
+    exact.updateField(view);
+    tree.updateField(view);
+
+    const exactSamples = exact.vectorField.getSamples();
+    const treeSamples = tree.vectorField.getSamples();
+
+    // Sample *positions* are generated from the particles, which are identical
+    // here, so both runs walk the same lattice. The lists can still differ by a
+    // sample or two: the sampler drops anything below a visibility threshold,
+    // and a sample sitting right at it can fall either side under two force
+    // sums that disagree in the fourth decimal place.
+    expect(treeSamples.length).toBeGreaterThan(exactSamples.length * 0.99);
+    expect(treeSamples.length).toBeLessThan(exactSamples.length * 1.01);
+
+    const byPosition = new Map(
+      exactSamples.map((sample) => [`${sample.position.x},${sample.position.y}`, sample.force])
+    );
+
+    let compared = 0;
+    let worst = 0;
+    for (const sample of treeSamples) {
+      const reference = byPosition.get(`${sample.position.x},${sample.position.y}`);
+      if (!reference || reference.magnitude() === 0) continue;
+
+      compared++;
+      worst = Math.max(worst, sample.force.sub(reference).magnitude() / reference.magnitude());
+    }
+
+    expect(compared).toBeGreaterThan(exactSamples.length * 0.95);
+    expect(worst).toBeLessThan(0.05);
   });
 });

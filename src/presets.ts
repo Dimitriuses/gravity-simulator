@@ -38,6 +38,24 @@ export interface Preset {
    * figure-eight below.
    */
   trailLength?: number;
+  /**
+   * Whether to draw the vector field for this scene. Defaults to on.
+   *
+   * Only the galaxy turns it off, because it cannot afford it: the field
+   * samples the visible region at up to 12,000 points regardless of how many
+   * bodies there are, and at that body count it costs several times what the
+   * physics does. Loading any scene applies this either way, so one scene's
+   * economies do not follow you into the next; the checkbox is updated to
+   * match, so what is on screen and what the control says still agree.
+   */
+  showVectorField?: boolean;
+  /**
+   * Whether to draw each body's force and velocity arrows.
+   *
+   * Same reasoning as `showVectorField`: two arrows per body is eight hundred
+   * arrows in the galaxy, which is neither affordable nor readable.
+   */
+  showParticleVectors?: boolean;
   bodies: PresetBody[];
 }
 
@@ -125,6 +143,60 @@ const eightVelocityScale = EIGHT_LENGTH / EIGHT_TIME;
 
 /** One full figure-eight, in simulation steps. Used by the tests. */
 export const FIGURE_EIGHT_PERIOD_STEPS = EIGHT_PERIOD_UNITS * EIGHT_TIME;
+
+// ─── Galaxy ──────────────────────────────────────────────────────────────────
+// The scene the quadtree exists for. Every body is on a circular orbit about
+// the centre, so the disc holds its shape rather than dispersing, and every
+// velocity comes from the same orbit equation the two-body scenes use.
+//
+// The body count is chosen for the frame budget rather than for astronomy:
+// enough that the exact pairwise sum visibly struggles, and few enough that the
+// scene still animates. Measured in Chromium: 30fps at 300 bodies and 20fps at
+// 400, with roughly half of each frame going on drawing. See SCALING.md.
+const GALAXY_BODIES = 300;
+const GALAXY_CORE_MASS = 400000;
+const GALAXY_INNER_RADIUS = 300;
+const GALAXY_OUTER_RADIUS = 2400;
+
+/**
+ * A tiny deterministic generator, so the galaxy is the same galaxy every time
+ * it is loaded — a scene that reshuffled itself could not be tested, and could
+ * not be compared against itself after a change.
+ */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296;
+  };
+}
+
+function galaxyBodies(): PresetBody[] {
+  const random = seededRandom(20240826);
+  const bodies: PresetBody[] = [
+    { x: 0, y: 0, mass: GALAXY_CORE_MASS, vx: 0, vy: 0 },
+  ];
+
+  for (let i = 1; i < GALAXY_BODIES; i++) {
+    // Square-rooted so the disc is evenly covered rather than crowding the
+    // centre, which is where the sampling would otherwise pile up.
+    const radius =
+      GALAXY_INNER_RADIUS +
+      Math.sqrt(random()) * (GALAXY_OUTER_RADIUS - GALAXY_INNER_RADIUS);
+    const angle = random() * Math.PI * 2;
+    const speed = circularOrbitSpeed(GALAXY_CORE_MASS, radius);
+
+    bodies.push({
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+      mass: 20 + random() * 60,
+      vx: -Math.sin(angle) * speed,
+      vy: Math.cos(angle) * speed,
+    });
+  }
+
+  return bodies;
+}
 
 // ─── Comet ───────────────────────────────────────────────────────────────────
 // An eccentricity-0.67 orbit: slow and distant at aphelion, whipping through
@@ -237,6 +309,21 @@ export const PRESETS: Preset[] = [
         vy: apoapsisSpeed(STAR_MASS, COMET_APHELION, COMET_PERIHELION),
       },
     ]),
+  },
+  {
+    id: 'galaxy',
+    name: 'Galaxy',
+    summary: 'Three hundred bodies on circular orbits, summed through a quadtree',
+    zoom: 0.22,
+    // See the note on Preset.showVectorField: at this body count the field
+    // costs several times what the physics does, and 12,000 arrows over 300
+    // bodies is noise rather than information. Turn it back on to see both.
+    showVectorField: false,
+    showParticleVectors: false,
+    // No trails: at this body count each trail is its own set of stroke
+    // changes, and the frame cost is already mostly drawing.
+    trailLength: 0,
+    bodies: balanced(galaxyBodies()),
   },
   {
     id: 'slingshot',

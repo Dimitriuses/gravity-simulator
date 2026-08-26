@@ -1,5 +1,6 @@
 import { Particle } from './Particle';
 import { Vector2D } from './Vector2D';
+import { treeOf } from './quadtree';
 
 /**
  * What happens when two bodies touch. Roadmap M2.
@@ -61,35 +62,81 @@ function contactGeometry(a: Particle, b: Particle): { normal: Vector2D; overlap:
 }
 
 /**
+ * Every touching pair, as index pairs with `i < j`.
+ *
+ * The direct scan is O(n²), which is the same wall the force sum ran into; past
+ * `treeThreshold` the quadtree answers the same question by asking each body
+ * only about bodies near it. `tests/quadtree.test.ts` pins that query against a
+ * linear scan, so the pairs found are the same pairs either way.
+ */
+function touchingPairs(particles: Particle[], treeThreshold: number): [number, number][] {
+  const pairs: [number, number][] = [];
+
+  if (particles.length >= treeThreshold) {
+    const tree = treeOf(particles);
+    const candidates: number[] = [];
+
+    for (let i = 0; i < particles.length; i++) {
+      candidates.length = 0;
+      const body = particles[i];
+      tree.withinContact(body.position.x, body.position.y, body.radius, candidates);
+
+      for (const j of candidates) {
+        // Each pair once, and never a body against itself.
+        if (j > i) pairs.push([i, j]);
+      }
+    }
+
+    return pairs;
+  }
+
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      if (overlapping(particles[i], particles[j])) pairs.push([i, j]);
+    }
+  }
+
+  return pairs;
+}
+
+/**
  * Merge every touching pair, in place.
  *
  * The heavier body absorbs the lighter one and keeps its identity, so the trail
  * on screen carries through the collision instead of restarting. Repeats until
  * nothing overlaps, because a merged body is larger than either of its parts
  * and can therefore reach a third body that neither of them touched.
+ *
+ * Within one pass, pairs are resolved greedily and a body already consumed is
+ * skipped rather than merged twice; the pass then repeats on what is left. That
+ * is what keeps a pile-up from costing a full re-detection per merge.
  */
-function mergeAll(particles: Particle[]): number {
+function mergeAll(particles: Particle[], treeThreshold: number): number {
   let merges = 0;
 
-  // Bounded by the particle count: every pass removes one body.
+  // Bounded by the particle count: every pass removes at least one body.
   for (let guard = particles.length; guard > 0; guard--) {
-    let found = false;
+    const pairs = touchingPairs(particles, treeThreshold);
+    if (pairs.length === 0) break;
 
-    for (let i = 0; i < particles.length && !found; i++) {
-      for (let j = i + 1; j < particles.length && !found; j++) {
-        if (!overlapping(particles[i], particles[j])) continue;
+    const consumed = new Set<number>();
+    const removals: number[] = [];
 
-        const heavier = particles[i].mass >= particles[j].mass ? i : j;
-        const lighter = heavier === i ? j : i;
+    for (const [i, j] of pairs) {
+      if (consumed.has(i) || consumed.has(j)) continue;
 
-        particles[heavier].absorb(particles[lighter]);
-        particles.splice(lighter, 1);
-        merges++;
-        found = true;
-      }
+      const heavier = particles[i].mass >= particles[j].mass ? i : j;
+      const lighter = heavier === i ? j : i;
+
+      particles[heavier].absorb(particles[lighter]);
+      consumed.add(lighter);
+      removals.push(lighter);
+      merges++;
     }
 
-    if (!found) break;
+    // Descending, so each splice leaves the lower indices untouched.
+    removals.sort((a, b) => b - a);
+    for (const index of removals) particles.splice(index, 1);
   }
 
   return merges;
@@ -103,35 +150,34 @@ function mergeAll(particles: Particle[]): number {
  * separates the pair. Without that correction the two stay overlapped, collide
  * again on the next step, and jitter against each other forever.
  */
-function bounceAll(particles: Particle[]): number {
+function bounceAll(particles: Particle[], treeThreshold: number): number {
   let impacts = 0;
 
-  for (let i = 0; i < particles.length; i++) {
-    for (let j = i + 1; j < particles.length; j++) {
-      const a = particles[i];
-      const b = particles[j];
-      if (!overlapping(a, b)) continue;
+  for (const [i, j] of touchingPairs(particles, treeThreshold)) {
+    const a = particles[i];
+    const b = particles[j];
+    // The pair list was gathered before any impulse was applied, so a pair may
+    // have been separated by an earlier one in the same pass.
+    if (!overlapping(a, b)) continue;
 
-      const { normal, overlap } = contactGeometry(a, b);
-      const approachSpeed = b.velocity.sub(a.velocity).dot(normal);
+    const { normal, overlap } = contactGeometry(a, b);
+    const approachSpeed = b.velocity.sub(a.velocity).dot(normal);
 
-      // Already separating: they are overlapped but on their way out, and
-      // hitting them again would pump energy in rather than take it out.
-      if (approachSpeed < 0) {
-        const impulse =
-          (-(1 + RESTITUTION) * approachSpeed) / (1 / a.mass + 1 / b.mass);
+    // Already separating: they are overlapped but on their way out, and hitting
+    // them again would pump energy in rather than take it out.
+    if (approachSpeed < 0) {
+      const impulse = (-(1 + RESTITUTION) * approachSpeed) / (1 / a.mass + 1 / b.mass);
 
-        a.velocity = a.velocity.sub(normal.mult(impulse / a.mass));
-        b.velocity = b.velocity.add(normal.mult(impulse / b.mass));
-        impacts++;
-      }
-
-      // Push them apart along the normal until they just touch, the heavier
-      // body moving least.
-      const total = a.mass + b.mass;
-      a.position = a.position.sub(normal.mult((overlap * b.mass) / total));
-      b.position = b.position.add(normal.mult((overlap * a.mass) / total));
+      a.velocity = a.velocity.sub(normal.mult(impulse / a.mass));
+      b.velocity = b.velocity.add(normal.mult(impulse / b.mass));
+      impacts++;
     }
+
+    // Push them apart along the normal until they just touch, the heavier body
+    // moving least.
+    const total = a.mass + b.mass;
+    a.position = a.position.sub(normal.mult((overlap * b.mass) / total));
+    b.position = b.position.add(normal.mult((overlap * a.mass) / total));
   }
 
   return impacts;
@@ -145,7 +191,13 @@ function bounceAll(particles: Particle[]): number {
  * both the membership of the list and the masses in it, and bouncing changes
  * positions.
  */
-export function resolveCollisions(particles: Particle[], mode: CollisionMode): number {
+export function resolveCollisions(
+  particles: Particle[],
+  mode: CollisionMode,
+  treeThreshold: number = Infinity
+): number {
   if (mode === 'none' || particles.length < 2) return 0;
-  return mode === 'merge' ? mergeAll(particles) : bounceAll(particles);
+  return mode === 'merge'
+    ? mergeAll(particles, treeThreshold)
+    : bounceAll(particles, treeThreshold);
 }
