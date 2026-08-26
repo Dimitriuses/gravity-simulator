@@ -90,6 +90,8 @@ const sketch = (p: p5) => {
   const integratorSelect = el<HTMLSelectElement>('integratorSelect');
   const adaptiveSteppingCheckbox = el<HTMLInputElement>('adaptiveStepping');
   const collisionSelect = el<HTMLSelectElement>('collisionSelect');
+  const restitutionSlider = el<HTMLInputElement>('restitutionSlider');
+  const restitutionValue = el('restitutionValue');
   const forceModeSelect = el<HTMLSelectElement>('forceModeSelect');
   const shareBtn = el('shareBtn');
   const shareStatus = el('shareStatus');
@@ -299,6 +301,8 @@ const sketch = (p: p5) => {
     engine.integrator = integratorSelect.value as IntegratorName;
     engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
     engine.collisionMode = collisionSelect.value as CollisionMode;
+    engine.restitution = parseFloat(restitutionSlider.value);
+    restitutionValue.textContent = engine.restitution.toFixed(2);
     engine.forceMode = forceModeSelect.value as ForceMode;
     loadPreset(presetSelect.value);
     renderer.showVectorField = showVectorsCheckbox.checked;
@@ -386,6 +390,11 @@ const sketch = (p: p5) => {
       engine.collisionMode = collisionSelect.value as CollisionMode;
     });
 
+    restitutionSlider.addEventListener('input', () => {
+      engine.restitution = parseFloat(restitutionSlider.value);
+      restitutionValue.textContent = engine.restitution.toFixed(2);
+    });
+
     forceModeSelect.addEventListener('change', () => {
       engine.forceMode = forceModeSelect.value as ForceMode;
     });
@@ -438,6 +447,13 @@ const sketch = (p: p5) => {
       collisionMode: engine.collisionMode,
       forceMode: engine.forceMode,
       adaptiveStepping: engine.adaptiveStepping,
+      restitution: engine.restitution,
+      // Only when something is actually turning: most scenes have no spin at
+      // all, and an all-zeroes field would double the length of every link for
+      // nothing.
+      spin: engine.particles.some((p) => p.angle !== 0 || p.angularVelocity !== 0)
+        ? engine.particles.map((p) => ({ angle: p.angle, angularVelocity: p.angularVelocity }))
+        : undefined,
     };
   }
 
@@ -474,6 +490,11 @@ const sketch = (p: p5) => {
       engine.adaptiveStepping = scene.adaptiveStepping;
       adaptiveSteppingCheckbox.checked = scene.adaptiveStepping;
     }
+    if (scene.restitution !== undefined) {
+      engine.restitution = scene.restitution;
+      restitutionSlider.value = String(scene.restitution);
+      restitutionValue.textContent = scene.restitution.toFixed(2);
+    }
 
     if (scene.trailLength !== undefined) sceneTrailLength = scene.trailLength;
 
@@ -492,11 +513,18 @@ const sketch = (p: p5) => {
 
     if (scene.bodies) {
       engine.clearParticles();
-      for (const body of scene.bodies) {
+      scene.bodies.forEach((body, index) => {
         const particle = new Particle(body.x, body.y, body.mass, body.vx, body.vy);
         particle.maxTrailLength = sceneTrailLength;
+
+        const spin = scene.spin?.[index];
+        if (spin) {
+          particle.angle = spin.angle;
+          particle.angularVelocity = spin.angularVelocity;
+        }
+
         engine.addParticle(particle);
-      }
+      });
       updateObjectCount();
     }
 

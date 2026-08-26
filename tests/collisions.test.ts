@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { RESTITUTION, overlapping, resolveCollisions } from '../src/collisions';
+import {
+  RESTITUTION,
+  overlapping,
+  resolveCollisions,
+  resolveContact,
+  sweptContactTime,
+} from '../src/collisions';
 import { PhysicsEngine } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
 import { Vector2D } from '../src/Vector2D';
@@ -268,35 +274,31 @@ describe('collisions inside the engine', () => {
     expect(momentum(engine.particles).y).toBeCloseTo(before.y, 6);
   });
 
-  it('catches a fast head-on pass that a fixed step tunnels straight through', () => {
-    // Contact is a test on overlap, so a body that crosses the whole contact
-    // window inside one step is never seen to touch anything. Adaptive
-    // sub-stepping is what saves it: the crossing timescale shrinks as the gap
-    // closes, so the approach gets sliced finely enough to notice.
+  it('catches a fast head-on pass at any speed, sub-stepping or not', () => {
+    // This used to be a demonstration of tunnelling. Contact was a test on
+    // overlap, so a body crossing the whole contact window inside one step was
+    // never seen to touch anything: at 160 units per frame against a 23-unit
+    // target, a fixed step went straight through and only adaptive sub-stepping
+    // caught it.
     //
-    // Measured: at 160 units per frame against a mass-500 target 23 units
-    // wide, the fixed step passes through and sub-stepping (33 sub-steps at
-    // closest approach) merges. Below about 160 the fixed step happens to land
-    // inside the window and catches it anyway.
-    const pass = (adaptive: boolean) => {
+    // Contact is now swept along the path each body travelled (roadmap M6), so
+    // the speed stops mattering.
+    const passes = (speed: number, adaptive: boolean) => {
       const engine = new PhysicsEngine(30);
       engine.adaptiveStepping = adaptive;
       engine.addParticle(new Particle(0, 0, 500, 0, 0));
-      engine.addParticle(new Particle(-400, 0, 50, 160, 0));
+      engine.addParticle(new Particle(-400, 0, 50, speed, 0));
 
-      let subSteps = 1;
-      for (let i = 0; i < 60; i++) {
-        engine.step();
-        subSteps = Math.max(subSteps, engine.lastSubSteps);
-      }
-      return { bodies: engine.particles.length, subSteps };
+      for (let i = 0; i < 60; i++) engine.step();
+      return engine.particles.length;
     };
 
-    expect(pass(false).bodies).toBe(2);
-
-    const adaptive = pass(true);
-    expect(adaptive.bodies).toBe(1);
-    expect(adaptive.subSteps).toBeGreaterThan(1);
+    // 20,000 units a frame is a body crossing the whole visible region between
+    // one frame and the next.
+    for (const speed of [160, 1000, 20000]) {
+      expect(passes(speed, false), `${speed} units per frame, fixed step`).toBe(1);
+      expect(passes(speed, true), `${speed} units per frame, sub-stepped`).toBe(1);
+    }
   });
 
   it('can be turned off, and then bodies pass through as before', () => {
@@ -326,5 +328,198 @@ describe('collisions inside the engine', () => {
 
     expect(engine.resolveCollisions()).toBe(1);
     expect(engine.particles).toHaveLength(1);
+  });
+});
+
+describe('when the contact happened', () => {
+  const at = (x: number, y: number) => new Vector2D(x, y);
+
+  it('solves for the moment two bodies meet', () => {
+    // A pair closing head-on: contact distance is the sum of the radii, so the
+    // time of impact is a number that can be worked out by hand.
+    const a = new Particle(0, 0, 100);
+    const b = new Particle(0, 0, 100);
+    const contact = a.radius + b.radius;
+
+    // b starts four contact-distances away and ends the step on top of a, so
+    // the gap closes from 4c to 0 at a constant rate. It passes through c —
+    // the moment they touch — three quarters of the way along.
+    a.position = at(0, 0);
+    b.position = at(0, 0);
+    const time = sweptContactTime(a, at(0, 0), b, at(4 * contact, 0));
+
+    expect(time).toBeCloseTo(0.75, 6);
+  });
+
+  it('says nothing happened when the pair never meet', () => {
+    const a = new Particle(0, 0, 100);
+    const b = new Particle(500, 500, 100);
+
+    expect(sweptContactTime(a, at(0, 0), b, at(500, 500))).toBeNull();
+  });
+
+  it('says nothing happened when they are moving apart', () => {
+    const a = new Particle(0, 0, 100);
+    const b = new Particle(300, 0, 100);
+
+    expect(sweptContactTime(a, at(0, 0), b, at(100, 0))).toBeNull();
+  });
+
+  it('reports zero when they were already touching', () => {
+    const a = new Particle(0, 0, 100);
+    const b = new Particle(a.radius, 0, 100);
+
+    expect(sweptContactTime(a, at(0, 0), b, at(a.radius, 0))).toBe(0);
+  });
+
+  it('catches a pass that crosses the window entirely', () => {
+    // The tunnelling case, as a single step: b starts far to the right, ends
+    // far to the left, and passes through a on the way.
+    const a = new Particle(0, 0, 100);
+    const b = new Particle(-4000, 0, 100);
+
+    const time = sweptContactTime(a, at(0, 0), b, at(4000, 0));
+    expect(time).not.toBeNull();
+    expect(time!).toBeGreaterThan(0);
+    expect(time!).toBeLessThan(1);
+  });
+});
+
+describe('spin', () => {
+  /**
+   * Two equal bodies exactly touching, with `b` moving at `a` along -x.
+   *
+   * `bearing` is where b sits relative to a: zero is head-on through both
+   * centres, anything else puts the contact normal at an angle to the motion
+   * and so gives the impact something to twist.
+   *
+   * Exactly touching matters: the positional correction only runs on an
+   * overlap, and it is the one part of a contact that is a fix-up rather than
+   * physics. Starting them in contact keeps these tests about the impulse.
+   */
+  function glancingPair(bearing: number) {
+    const a = new Particle(0, 0, 200, 0, 0);
+    const contact = a.radius + Particle.radiusForMass(200);
+    return [
+      a,
+      new Particle(Math.cos(bearing) * contact, Math.sin(bearing) * contact, 200, -4, 0),
+    ];
+  }
+
+  it('imparts none on a head-on hit through both centres', () => {
+    const [a, b] = glancingPair(0);
+    resolveContact(a, b, 0.5);
+
+    expect(a.angularVelocity).toBeCloseTo(0, 12);
+    expect(b.angularVelocity).toBeCloseTo(0, 12);
+  });
+
+  it('imparts spin on an off-centre hit', () => {
+    // Friction at the contact point is what does it: without a tangential
+    // impulse the two would scrape past without either starting to turn.
+    const [a, b] = glancingPair(Math.PI / 6);
+    resolveContact(a, b, 0.5);
+
+    expect(Math.abs(a.angularVelocity)).toBeGreaterThan(0);
+    expect(Math.abs(b.angularVelocity)).toBeGreaterThan(0);
+  });
+
+  it('conserves angular momentum through a bounce', () => {
+    const [a, b] = glancingPair(Math.PI / 6);
+    const origin = new Vector2D(0, 0);
+    const before = a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin);
+
+    resolveContact(a, b, 0.5);
+
+    const after = a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin);
+    expect(after).toBeCloseTo(before, 8);
+  });
+
+  it('conserves linear momentum through a bounce, spin and all', () => {
+    const [a, b] = glancingPair(Math.PI / 6);
+    const before = momentum([a, b]);
+
+    resolveContact(a, b, 0.5);
+
+    const after = momentum([a, b]);
+    expect(after.x).toBeCloseTo(before.x, 8);
+    expect(after.y).toBeCloseTo(before.y, 8);
+  });
+
+  it('conserves angular momentum through a merge', () => {
+    // Two bodies passing each other carry angular momentum about their common
+    // centre even with no spin of their own; the merged body has to carry it
+    // as spin, or a merge would quietly destroy it.
+    const a = new Particle(-10, 0, 200, 0, 2);
+    const b = new Particle(10, 0, 200, 0, -2);
+    a.angularVelocity = 0.05;
+
+    const centre = new Vector2D(0, 0);
+    const before = a.angularMomentumAbout(centre) + b.angularMomentumAbout(centre);
+
+    a.absorb(b);
+
+    expect(a.angularMomentumAbout(centre)).toBeCloseTo(before, 8);
+    expect(Math.abs(a.angularVelocity)).toBeGreaterThan(0);
+  });
+
+  it('turns a body it has set spinning', () => {
+    const engine = new PhysicsEngine(30);
+    const particle = new Particle(0, 0, 200);
+    particle.angularVelocity = 0.1;
+    engine.addParticle(particle);
+
+    engine.step();
+    expect(particle.angle).toBeCloseTo(0.1, 9);
+  });
+
+  it('leaves bodies alone that nothing has touched', () => {
+    // Gravity applies no torque to a point mass, so an orbit must not
+    // spontaneously start spinning.
+    const engine = new PhysicsEngine(30);
+    engine.addParticle(new Particle(0, 0, 5000));
+    engine.addParticle(new Particle(200, 0, 10, 0, 3.54));
+
+    for (let i = 0; i < 200; i++) engine.step();
+
+    for (const particle of engine.particles) {
+      expect(particle.angularVelocity).toBe(0);
+      expect(particle.angle).toBe(0);
+    }
+  });
+});
+
+describe('restitution as a setting', () => {
+  it('scales the bounce, from dead stop to nearly elastic', () => {
+    const rebound = (restitution: number) => {
+      const a = new Particle(0, 0, 200, 2, 0);
+      const b = new Particle(a.radius * 2, 0, 200, -2, 0);
+      resolveContact(a, b, restitution);
+      return b.velocity.sub(a.velocity).magnitude();
+    };
+
+    expect(rebound(0)).toBeCloseTo(0, 9);
+    expect(rebound(0.5)).toBeCloseTo(2, 9);
+    expect(rebound(1)).toBeCloseTo(4, 9);
+  });
+
+  it('is what the engine passes down', () => {
+    // Compared against each other rather than against a fixed number: gravity
+    // is trading potential and kinetic energy the whole time these run, so what
+    // is meaningful is that the bouncier setting keeps more of it.
+    const energyAfterBouncing = (restitution: number) => {
+      const engine = new PhysicsEngine(30);
+      engine.collisionMode = 'bounce';
+      engine.restitution = restitution;
+
+      engine.addParticle(new Particle(-30, 0, 200, 3, 0));
+      engine.addParticle(new Particle(30, 0, 200, -3, 0));
+
+      for (let i = 0; i < 60; i++) engine.step();
+      return kineticEnergy(engine.particles);
+    };
+
+    expect(energyAfterBouncing(1)).toBeGreaterThan(energyAfterBouncing(0.5));
+    expect(energyAfterBouncing(0.5)).toBeGreaterThan(energyAfterBouncing(0));
   });
 });

@@ -56,6 +56,9 @@ export interface SavedScene {
   collisionMode?: CollisionMode;
   forceMode?: ForceMode;
   adaptiveStepping?: boolean;
+  restitution?: number;
+  /** Per body, in the same order as `bodies`. Omitted when nothing is turning. */
+  spin?: { angle: number; angularVelocity: number }[];
 }
 
 export type DecodeResult = { scene: SavedScene } | { error: string };
@@ -105,6 +108,19 @@ export function encodeScene(scene: SavedScene): string {
     fields.push(
       `p=${scene.integrator ?? 'verlet'},${scene.collisionMode ?? 'merge'},` +
         `${scene.forceMode ?? 'auto'},${flag(scene.adaptiveStepping ?? true)}`
+    );
+  }
+
+  // Both of these are their own key rather than extra parts of `p=`, and that
+  // is deliberate: a build that predates them ignores a key it does not know,
+  // where a fifth comma-separated part would have made it reject the whole
+  // link. The version is for changes that would be *misread*, not for
+  // additions.
+  if (scene.restitution !== undefined) fields.push(`r=${num(scene.restitution)}`);
+
+  if (scene.spin) {
+    fields.push(
+      `w=${scene.spin.map((s) => `${num(s.angle)},${num(s.angularVelocity)}`).join('|')}`
     );
   }
 
@@ -205,6 +221,25 @@ export function decodeScene(text: string): DecodeResult {
     scene.collisionMode = collisions;
     scene.forceMode = forces;
     scene.adaptiveStepping = parts[3] === '1';
+  }
+
+  const restitution = fields.get('r');
+  if (restitution !== undefined) {
+    const parsed = Number(restitution);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      return { error: 'bad restitution' };
+    }
+    scene.restitution = parsed;
+  }
+
+  const spin = fields.get('w');
+  if (spin !== undefined) {
+    scene.spin = [];
+    for (const entry of spin.split('|').filter((part) => part !== '')) {
+      const parsed = parseNumbers(entry, 2);
+      if (!parsed) return { error: `bad spin: "${entry}"` };
+      scene.spin.push({ angle: parsed[0], angularVelocity: parsed[1] });
+    }
   }
 
   const bodies = fields.get('b');

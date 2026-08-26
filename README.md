@@ -29,8 +29,14 @@ inferred from how things move.
 - **Three integration schemes**, switchable while running — velocity Verlet
   (the default), symplectic Euler and RK4 — with adaptive sub-stepping that
   slices a frame as finely as the closest pair needs.
-- **Contacts are resolved**: bodies merge on contact by default, conserving mass
-  and momentum, or bounce inelastically, or pass through — whichever you pick.
+- **Contacts are resolved**: bodies merge on contact by default, conserving
+  mass, momentum *and* angular momentum, or bounce with adjustable bounciness,
+  or pass through — whichever you pick. Contact is detected along the path a
+  body travelled rather than by testing overlap at the end of a step, so nothing
+  passes through anything by moving fast enough.
+- **Bodies spin.** Friction at an off-centre contact converts a glancing hit
+  into rotation, and a merged body carries the pair's angular momentum as spin.
+  A radius line marks any body that is turning.
 - **Scales to hundreds of bodies** through a Barnes-Hut quadtree, which answers
   the net force on a body, the field at a sample point, which bodies are
   touching, and how finely the frame needs slicing — all from one tree.
@@ -94,7 +100,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
 | **Reload** | Rebuild the current scene from scratch |
 | **Copy Link** | Put the scene as it stands into the address bar, and on the clipboard |
-| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, or force the exact force solver |
+| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, set how bouncy it is, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Field* dropdown switches between the six ways of drawing it. Bodies you add yourself inherit
@@ -148,6 +154,14 @@ future is refused rather than guessed at, and every number, setting and body
 count is validated before any of it is applied. A link that cannot be read says
 what was wrong with it rather than quietly showing the default scene, which
 would look exactly like the link having worked.
+
+**A contact conserves what a contact should.** Both impulses — the bounce along
+the normal and the friction across it — act at the same point and are equal and
+opposite, so linear and angular momentum come out exactly conserved. That is the
+property the tests check, because it is the one a wrong sign or a wrong lever
+arm breaks first: an earlier version took each body's lever arm as its own
+radius, which is the same point only when the pair is exactly touching, and 1.6%
+of the angular momentum vanished per bounce.
 
 **The contour and streamline tracers know nothing about gravity.** Both take a
 function — a scalar at a point, or a vector at a point — and return geometry.
@@ -207,7 +221,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 216 unit tests, headless, ~13s
+npm test            # 234 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -226,7 +240,7 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 73 properties, including that the background is the intended navy, that
+asserts 76 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -263,11 +277,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   Euler) to 0.11%. There is a floor on how badly a *physical* orbit can be
   resolved — about 25 steps per orbit, since a body cannot orbit inside the
   primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
-- **Collisions are crude.** Merging is perfectly inelastic and irreversible,
-  bodies carry no rotation, and contact is a discrete overlap test rather than a
-  swept one — so a body moving further than the contact window in a single
-  sub-step can still pass through. Adaptive sub-stepping is what keeps that
-  rare.
+- **Collisions are still simple.** Merging is perfectly inelastic and
+  irreversible, and nothing fragments. Gravity applies no torque, so spin
+  changes only at contact. The overlap correction that separates two
+  interpenetrating bodies is a fix-up rather than physics.
 - **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
   normalized logarithmically against the range present in the current frame. The
   legend now prints that range, so the picture can be read in absolute terms —
@@ -288,10 +301,9 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers contact physics beyond
-merging (rotation, swept detection), the costs that are still superlinear, and
-checking the simulation against real ephemeris data — plus what is deliberately
-deferred, and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers the costs that are still
+superlinear, checking the simulation against real ephemeris data, and
+housekeeping — plus what is deliberately deferred, and why.
 
 ## Licence
 

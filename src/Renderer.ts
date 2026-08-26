@@ -48,6 +48,12 @@ const TRAIL_BANDS = 16;
  */
 const MIN_LABELLED_DIAMETER_PX = 18;
 
+/** Below this on-screen diameter a body's spin marker is not worth drawing. */
+const MIN_SPUN_DIAMETER_PX = 10;
+
+/** The radius line that shows which way a body is facing. */
+const COLOR_SPIN_MARKER = [40, 60, 110] as const;
+
 /**
  * HSV to RGB, for the one place that writes pixels directly.
  *
@@ -561,9 +567,47 @@ export class Renderer {
       this.p.circle(particle.position.x, particle.position.y, visualRadius * 2);
     }
 
+    this.drawSpinMarkers(particles);
     this.drawMassLabels(particles);
 
     this.p.pop();
+  }
+
+  /**
+   * A radius line on each spinning body, so its rotation is visible.
+   *
+   * Without it, spin is state the simulation carries and the picture never
+   * shows — an off-centre impact would look like a plain deflection and the
+   * whole of M6 would be invisible. Only bodies actually turning get one, so a
+   * scene with no contacts looks exactly as it did.
+   */
+  private drawSpinMarkers(particles: Particle[]): void {
+    const smallest = MIN_SPUN_DIAMETER_PX / (2 * this.particleSizeMultiplier * this.zoom);
+
+    let any = false;
+    for (const particle of particles) {
+      if (particle.angularVelocity !== 0 && particle.radius >= smallest) {
+        any = true;
+        break;
+      }
+    }
+    if (!any) return;
+
+    this.p.stroke(...COLOR_SPIN_MARKER);
+    this.p.strokeWeight(1.5 / this.zoom);
+    this.p.noFill();
+
+    for (const particle of particles) {
+      if (particle.angularVelocity === 0 || particle.radius < smallest) continue;
+
+      const visualRadius = particle.radius * this.particleSizeMultiplier;
+      this.p.line(
+        particle.position.x,
+        particle.position.y,
+        particle.position.x + Math.cos(particle.angle) * visualRadius,
+        particle.position.y + Math.sin(particle.angle) * visualRadius
+      );
+    }
   }
 
   /** Mass labels, for the bodies large enough on screen to carry one. */

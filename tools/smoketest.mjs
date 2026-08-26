@@ -897,6 +897,105 @@ try {
     `row reads "${afterMerge.label}"`
   );
 
+  // ── Contact physics ────────────────────────────────────────────────────────
+  // The impulse maths, the friction that imparts spin and the swept detection
+  // are all proved in tests/collisions.test.ts, against conservation laws and
+  // hand-checkable contact times. What only exists here is the control and the
+  // fact that spin reaches the screen at all.
+  const bounciness = await page.evaluate(() => ({
+    value: document.getElementById('restitutionSlider').value,
+    shown: document.getElementById('restitutionValue').textContent,
+  }));
+  check(
+    'the bounciness control is wired to what the label says',
+    Number(bounciness.value) === 0.5 && bounciness.shown === '0.50',
+    `slider=${bounciness.value}, label="${bounciness.shown}"`
+  );
+
+  // A pile of heavy bodies dropped together: they settle by knocking into each
+  // other off-centre, which is exactly what should set them spinning.
+  await page.selectOption('#collisionSelect', 'bounce');
+  await page.click('#clearBtn');
+  await page.locator('#massSlider').fill('3000');
+  await page.locator('#restitutionSlider').fill('0.8');
+  await page.waitForTimeout(120);
+
+  for (const [x, y] of [
+    [560, 320],
+    [720, 340],
+    [640, 520],
+    [500, 470],
+    [780, 480],
+  ]) {
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(120);
+  }
+  await page.waitForTimeout(5000);
+
+  const spinning = await page.evaluate(() => document.getElementById('restitutionValue').textContent);
+  const spinMarkers = await onCanvas(countNear, { rgb: [40, 60, 110], tol: 30 });
+  check(
+    'an off-centre bounce sets bodies spinning, visibly',
+    spinMarkers > 100,
+    `${spinMarkers} spin-marker pixels, bounciness ${spinning}`
+  );
+
+  // Bouncier really is bouncier: the same pile-up, run twice.
+  const spreadAfterBouncing = async (restitution) => {
+    await page.click('#clearBtn');
+    await page.locator('#restitutionSlider').fill(String(restitution));
+    await page.waitForTimeout(120);
+
+    for (const [x, y] of [
+      [600, 380],
+      [680, 400],
+      [640, 460],
+    ]) {
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(120);
+    }
+    await page.waitForTimeout(4000);
+
+    return page.evaluate(() => {
+      // How far the bodies have scattered, judged by the spread of the drawn
+      // pale-blue discs across the canvas.
+      const canvas = document.querySelector('canvas');
+      const off = document.createElement('canvas');
+      off.width = canvas.width;
+      off.height = canvas.height;
+      const ctx = off.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(canvas, 0, 0);
+      const { data, width, height } = ctx.getImageData(0, 0, off.width, off.height);
+
+      let minX = width;
+      let maxX = 0;
+      for (let y = 0; y < height; y += 2) {
+        for (let x = 0; x < width; x += 2) {
+          const i = (y * width + x) * 4;
+          if (Math.abs(data[i] - 150) < 40 && Math.abs(data[i + 2] - 255) < 40) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+          }
+        }
+      }
+      return maxX - minX;
+    });
+  };
+
+  const dead = await spreadAfterBouncing(0);
+  const lively = await spreadAfterBouncing(1);
+  check(
+    'a bouncier setting scatters a pile further',
+    lively > dead,
+    `spread ${lively}px at 1.0 against ${dead}px at 0`
+  );
+
+  await page.locator('#restitutionSlider').fill('0.5');
+  await page.locator('#massSlider').fill('3000');
+  await page.selectOption('#collisionSelect', 'merge');
+  await page.click('#clearBtn');
+  await page.waitForTimeout(200);
+
   // Pass-through mode restores the old behaviour: the same two bodies coexist.
   await page.selectOption('#collisionSelect', 'none');
   await page.click('#clearBtn');

@@ -51,7 +51,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 209 tests run under Node in about sixteen
+plain TypeScript, which is why 234 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -114,6 +114,32 @@ Two bodies touch at `a.radius + b.radius`, which is exactly where
 `gravitationalForce` stops letting the force grow. Keep them equal. Inside that
 distance the force law has already given up on saying anything meaningful, so it
 is the natural place - and the only defensible place - to resolve a contact.
+
+### Both impulses in a contact act at one shared point
+
+`resolveContact` computes a single contact point and takes both lever arms from
+it. Taking each arm as its own body's radius along the normal is the same point
+only while the pair is exactly touching; the moment they overlap it is two
+points, and equal-and-opposite impulses applied at two different points do not
+conserve angular momentum. Measured before the fix: 1.6% of it gone per bounce.
+
+Pinned by *"conserves angular momentum through a bounce"*, which starts the pair
+exactly in contact so the positional correction — the one part of a contact that
+is a fix-up rather than physics — does not muddy the measurement.
+
+### Contact is swept, so speed cannot smuggle a body through another
+
+`sweptContactTime` solves `|p + t·v|² = (r₁ + r₂)²` over the step just taken,
+and a pair caught mid-flight is wound back to where they met before being
+resolved. Testing overlap at the end of a step instead misses anything that
+crossed the whole contact window inside it — measured, that used to start at
+about 160 units per frame and adaptive sub-stepping was the only thing saving
+it.
+
+The tree used for the broad phase is therefore built over each body's *swept*
+disc — centred on the middle of its motion, widened by half of it. A tree of
+end-of-step positions would prune away exactly the pairs the sweep exists to
+catch.
 
 ### Collisions invalidate every cached acceleration
 

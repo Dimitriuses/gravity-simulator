@@ -226,31 +226,54 @@ body now refine regardless, to the same fine spacing the zone-based mode used.
 - **Nothing labels a contour with its value.** The legend gives the range; an
   individual line does not say which level it is.
 
-## M6 — Contact physics beyond merging
+## M6 — Contact physics beyond merging — **done**
 
-M2 made contact resolve. It did not make it physical. Everything here was left
-open by that milestone, and it is grouped rather than scattered because the
-first three items all touch the same file and the same contact geometry.
+M2 made contact resolve. This made it physical. Three of the four items landed;
+the fourth stays deferred, for the reason it was always deferred.
 
-- **Restitution as a control** — *small*. It is a constant at 0.5 in
-  `collisions.ts`. A slider makes the difference between putty and rubber
-  visible, and it is the one item here that could ship on its own afternoon.
-- **Swept contact detection** — *medium*. Overlap is tested after each sub-step
-  rather than along the path between them, so a body crossing the whole contact
-  window inside one sub-step is never seen to touch. Adaptive stepping keeps
-  that rare — measured, a body needs about 160 units per frame to slip through —
-  but rare is not never, and turning sub-stepping off makes it easy to produce.
-- **Rotation** — *large*, and the reason this is a milestone rather than a
-  footnote. Bodies carry no angular momentum, so an off-centre impact that
-  should set something spinning only deflects it. Adding it means angular state
-  on every body, friction at the contact point, a moment of inertia that follows
-  from the mass-radius rule, and something visible in the renderer — otherwise
-  the whole thing is invisible and unverifiable.
-- **Fragmentation** — *large*, and **deferred within this milestone**. The
-  opposite of merging, and much harder to make look right: the fragments' number,
-  sizes and velocities are all free parameters, and conserving mass, momentum and
-  energy through a break-up while producing something that reads as a collision
-  rather than confetti is a design problem before it is a physics one.
+- ~~**Restitution as a control.**~~ **Done.** A *Bounciness* slider from 0 to 1,
+  carried in a shared link, and passed down to the solver rather than living as
+  a constant.
+- ~~**Swept contact detection.**~~ **Done.** Contact is no longer a test on
+  overlap at the end of a step but a question about the path taken: given where
+  each body started and finished, was there a moment when the gap closed to the
+  sum of the radii? That is a quadratic in the fraction of the step elapsed, and
+  it is solved exactly. A pair caught mid-flight is wound back to where they
+  actually met before being resolved.
+- ~~**Rotation.**~~ **Done.** Bodies carry an angle and an angular velocity, a
+  moment of inertia that follows from the mass-radius rule (`½·m·r²`), and a
+  contact solver that applies a friction impulse across the normal as well as
+  the bounce along it. An off-centre hit now imparts spin; a hit through both
+  centres still does not. Merging carries the pair's angular momentum about the
+  merge point into the survivor's spin. The renderer draws a radius line on any
+  body that is turning, because state the picture never shows may as well not
+  exist.
+- **Fragmentation** — *large*, and **still deferred**. The fragments' number,
+  sizes and velocities are all free parameters, and conserving mass, momentum
+  and energy through a break-up while producing something that reads as a
+  collision rather than confetti is a design problem before it is a physics one.
+
+**What swept detection bought**, measured on a mass-500 target 23 units wide:
+before, a body at 160 units per frame went straight through unless adaptive
+sub-stepping caught it. Now it is caught at 160, at 1,000 and at 20,000 units
+per frame, with sub-stepping on or off — 20,000 being a body that crosses the
+whole visible region between one frame and the next.
+
+**What it cost to get right:** the first contact solver took each body's lever
+arm as its own radius along the normal. For a pair that is exactly touching that
+is the same point; for a pair that overlaps it is two different points, and
+equal-and-opposite impulses applied at two different points do not conserve
+angular momentum. Measured, 1.6% of it vanished per bounce. Both arms now run to
+one shared contact point in the middle of the overlap.
+
+**Still open**, and both small:
+
+- **The sweep assumes straight-line motion within a sub-step.** It is exact for
+  the step it is given, so the remaining error is the curvature the step itself
+  ignores — which adaptive stepping already bounds.
+- **The positional correction is not physics.** Shoving two overlapping bodies
+  apart perturbs momentum slightly. It only runs on an actual overlap, which
+  swept detection has made rare.
 
 ## M7 — The costs that are still superlinear
 

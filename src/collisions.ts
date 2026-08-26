@@ -1,6 +1,6 @@
 import { Particle } from './Particle';
 import { Vector2D } from './Vector2D';
-import { treeOf } from './quadtree';
+import { QuadTree, treeOf } from './quadtree';
 
 /**
  * What happens when two bodies touch. Roadmap M2.
@@ -26,14 +26,68 @@ export const COLLISION_MODE_LABELS: ReadonlyArray<{ id: CollisionMode; label: st
 ];
 
 /**
- * Bounce restitution: the fraction of approach speed that survives an impact.
+ * Default bounce restitution: the fraction of approach speed that survives an
+ * impact.
  *
  * 1 would be a perfectly elastic bounce, 0 a pair that hits and stops dead
  * relative to each other. Half is firmly inelastic — collisions visibly bleed
  * energy out of a system, which is the honest behaviour for lumps of rock and
- * is what keeps a bouncing pair from ringing forever.
+ * is what keeps a bouncing pair from ringing forever. The UI can set it to
+ * anything in between.
  */
 export const RESTITUTION = 0.5;
+
+/**
+ * Coulomb friction at a contact, as a fraction of the normal impulse.
+ *
+ * This is what turns an off-centre hit into a spin: without a tangential
+ * impulse a bounce is frictionless and central, and two bodies could scrape
+ * past each other without either one starting to turn. A third is a rough
+ * surface — rock rather than ice.
+ */
+export const CONTACT_FRICTION = 1 / 3;
+
+/**
+ * When, during a sub-step, did these two bodies first touch?
+ *
+ * Overlap tested only at the end of a step misses anything that crossed the
+ * whole contact window inside it: measured, a body at 160 units per frame goes
+ * straight through a 23-unit target and is never seen to touch. This asks the
+ * other question — over the straight line each body travelled, was there a
+ * moment when the gap closed?
+ *
+ * That is a quadratic in the fraction of the step elapsed: with `p` the gap at
+ * the start and `v` how much it changed over the step, `|p + t·v|² = contact²`.
+ * Returns the earliest `t` in [0, 1], or null.
+ */
+export function sweptContactTime(
+  a: Particle,
+  aFrom: Vector2D,
+  b: Particle,
+  bFrom: Vector2D
+): number | null {
+  const contact = a.radius + b.radius;
+
+  const p = bFrom.sub(aFrom);
+  const v = b.position.sub(bFrom).sub(a.position.sub(aFrom));
+
+  // Already touching when the step began; nothing to solve for.
+  if (p.magnitudeSquared() <= contact * contact) return 0;
+
+  const va = v.magnitudeSquared();
+  if (va === 0) return null;
+
+  const half = p.dot(v);
+  // Moving apart, or not closing at all.
+  if (half >= 0) return null;
+
+  const c = p.magnitudeSquared() - contact * contact;
+  const discriminant = half * half - va * c;
+  if (discriminant < 0) return null;
+
+  const t = (-half - Math.sqrt(discriminant)) / va;
+  return t >= 0 && t <= 1 ? t : null;
+}
 
 /** Are these two bodies touching? */
 export function overlapping(a: Particle, b: Particle): boolean {
@@ -69,21 +123,41 @@ function contactGeometry(a: Particle, b: Particle): { normal: Vector2D; overlap:
  * only about bodies near it. `tests/quadtree.test.ts` pins that query against a
  * linear scan, so the pairs found are the same pairs either way.
  */
-function touchingPairs(particles: Particle[], treeThreshold: number): [number, number][] {
+function touchingPairs(
+  particles: Particle[],
+  treeThreshold: number,
+  previous?: Vector2D[]
+): [number, number][] {
   const pairs: [number, number][] = [];
 
+  const touched = (i: number, j: number): boolean => {
+    if (overlapping(particles[i], particles[j])) return true;
+    // Swept: did they pass through each other inside the step?
+    return previous
+      ? sweptContactTime(particles[i], previous[i], particles[j], previous[j]) !== null
+      : false;
+  };
+
   if (particles.length >= treeThreshold) {
-    const tree = treeOf(particles);
+    const tree = sweptTree(particles, previous);
     const candidates: number[] = [];
 
     for (let i = 0; i < particles.length; i++) {
       candidates.length = 0;
       const body = particles[i];
-      tree.withinContact(body.position.x, body.position.y, body.radius, candidates);
+
+      // Query from the same swept disc the tree was built from, or the pruning
+      // would discard the very pairs the sweep is meant to catch.
+      const centre = previous ? previous[i].add(body.position).div(2) : body.position;
+      const reach = previous
+        ? body.radius + body.position.sub(previous[i]).magnitude() / 2
+        : body.radius;
+
+      tree.withinContact(centre.x, centre.y, reach, candidates);
 
       for (const j of candidates) {
         // Each pair once, and never a body against itself.
-        if (j > i) pairs.push([i, j]);
+        if (j > i && touched(i, j)) pairs.push([i, j]);
       }
     }
 
@@ -92,11 +166,38 @@ function touchingPairs(particles: Particle[], treeThreshold: number): [number, n
 
   for (let i = 0; i < particles.length; i++) {
     for (let j = i + 1; j < particles.length; j++) {
-      if (overlapping(particles[i], particles[j])) pairs.push([i, j]);
+      if (touched(i, j)) pairs.push([i, j]);
     }
   }
 
   return pairs;
+}
+
+/**
+ * A tree over the bodies' *swept* discs: each one centred on the middle of its
+ * motion and widened by half of it.
+ *
+ * A tree of end-of-step positions cannot answer a question about the path taken
+ * to get there — it would prune away a body that flew clean through another.
+ */
+function sweptTree(particles: Particle[], previous?: Vector2D[]) {
+  if (!previous) return treeOf(particles);
+
+  return QuadTree.build(
+    particles.map((particle, index) => {
+      const travel = particle.position.sub(previous[index]);
+      const centre = previous[index].add(particle.position).div(2);
+
+      return {
+        x: centre.x,
+        y: centre.y,
+        mass: particle.mass,
+        radius: particle.radius + travel.magnitude() / 2,
+        vx: particle.velocity.x,
+        vy: particle.velocity.y,
+      };
+    })
+  );
 }
 
 /**
@@ -111,12 +212,16 @@ function touchingPairs(particles: Particle[], treeThreshold: number): [number, n
  * skipped rather than merged twice; the pass then repeats on what is left. That
  * is what keeps a pile-up from costing a full re-detection per merge.
  */
-function mergeAll(particles: Particle[], treeThreshold: number): number {
+function mergeAll(
+  particles: Particle[],
+  treeThreshold: number,
+  previous?: Vector2D[]
+): number {
   let merges = 0;
 
   // Bounded by the particle count: every pass removes at least one body.
   for (let guard = particles.length; guard > 0; guard--) {
-    const pairs = touchingPairs(particles, treeThreshold);
+    const pairs = touchingPairs(particles, treeThreshold, previous);
     if (pairs.length === 0) break;
 
     const consumed = new Set<number>();
@@ -124,6 +229,11 @@ function mergeAll(particles: Particle[], treeThreshold: number): number {
 
     for (const [i, j] of pairs) {
       if (consumed.has(i) || consumed.has(j)) continue;
+
+      // A pair caught mid-flight is wound back to where it actually met, so
+      // the merged body appears at the point of contact rather than wherever
+      // the step happened to end.
+      if (previous) rewindToContact(particles[i], previous[i], particles[j], previous[j]);
 
       const heavier = particles[i].mass >= particles[j].mass ? i : j;
       const lighter = heavier === i ? j : i;
@@ -134,12 +244,31 @@ function mergeAll(particles: Particle[], treeThreshold: number): number {
       merges++;
     }
 
-    // Descending, so each splice leaves the lower indices untouched.
+    // Descending, so each splice leaves the lower indices untouched. The
+    // previous-position list has to follow, or the two fall out of step.
     removals.sort((a, b) => b - a);
-    for (const index of removals) particles.splice(index, 1);
+    for (const index of removals) {
+      particles.splice(index, 1);
+      previous?.splice(index, 1);
+    }
   }
 
   return merges;
+}
+
+/**
+ * Put a pair back where they first touched, if that was partway through the
+ * step just taken.
+ *
+ * Resolving a contact at the end-of-step positions means resolving it where the
+ * bodies have already interpenetrated, or passed each other entirely.
+ */
+function rewindToContact(a: Particle, aFrom: Vector2D, b: Particle, bFrom: Vector2D): void {
+  const time = sweptContactTime(a, aFrom, b, bFrom);
+  if (time === null || time === 0) return;
+
+  a.position = aFrom.add(a.position.sub(aFrom).mult(time));
+  b.position = bFrom.add(b.position.sub(bFrom).mult(time));
 }
 
 /**
@@ -150,37 +279,120 @@ function mergeAll(particles: Particle[], treeThreshold: number): number {
  * separates the pair. Without that correction the two stay overlapped, collide
  * again on the next step, and jitter against each other forever.
  */
-function bounceAll(particles: Particle[], treeThreshold: number): number {
+function bounceAll(
+  particles: Particle[],
+  treeThreshold: number,
+  restitution: number,
+  previous?: Vector2D[]
+): number {
   let impacts = 0;
 
-  for (const [i, j] of touchingPairs(particles, treeThreshold)) {
+  for (const [i, j] of touchingPairs(particles, treeThreshold, previous)) {
     const a = particles[i];
     const b = particles[j];
+
+    if (previous) rewindToContact(a, previous[i], b, previous[j]);
+
     // The pair list was gathered before any impulse was applied, so a pair may
     // have been separated by an earlier one in the same pass.
     if (!overlapping(a, b)) continue;
 
-    const { normal, overlap } = contactGeometry(a, b);
-    const approachSpeed = b.velocity.sub(a.velocity).dot(normal);
-
-    // Already separating: they are overlapped but on their way out, and hitting
-    // them again would pump energy in rather than take it out.
-    if (approachSpeed < 0) {
-      const impulse = (-(1 + RESTITUTION) * approachSpeed) / (1 / a.mass + 1 / b.mass);
-
-      a.velocity = a.velocity.sub(normal.mult(impulse / a.mass));
-      b.velocity = b.velocity.add(normal.mult(impulse / b.mass));
-      impacts++;
-    }
-
-    // Push them apart along the normal until they just touch, the heavier body
-    // moving least.
-    const total = a.mass + b.mass;
-    a.position = a.position.sub(normal.mult((overlap * b.mass) / total));
-    b.position = b.position.add(normal.mult((overlap * a.mass) / total));
+    if (resolveContact(a, b, restitution)) impacts++;
   }
 
   return impacts;
+}
+
+/**
+ * One contact between two bodies: an impulse along the normal, a friction
+ * impulse across it, and the positional correction that separates them.
+ *
+ * Both impulses act at the same contact point and are equal and opposite, so
+ * linear *and* angular momentum come out exactly conserved — which is what the
+ * tests check, because it is the property that a wrong sign or a wrong lever
+ * arm breaks first.
+ *
+ * The positional correction that follows is the exception: shoving two
+ * overlapping bodies apart is a fix-up rather than physics, and it perturbs
+ * angular momentum by a little. It only runs when they are actually
+ * interpenetrating, which swept detection now makes rare.
+ */
+export function resolveContact(a: Particle, b: Particle, restitution: number): boolean {
+  const { normal, overlap } = contactGeometry(a, b);
+
+  // Arms from each centre to *the same point*. Taking each arm as its own
+  // body's radius along the normal puts the two impulses at two different
+  // places whenever the pair overlaps, and equal and opposite impulses applied
+  // at different points do not conserve angular momentum — measured, 1.6% of it
+  // vanished per bounce. The shared point sits in the middle of the overlap.
+  const contactPoint = a.position.add(normal.mult(a.radius - overlap / 2));
+  const armA = contactPoint.sub(a.position);
+  const armB = contactPoint.sub(b.position);
+
+  const relative = b.velocityAt(armB).sub(a.velocityAt(armA));
+  const approachSpeed = relative.dot(normal);
+
+  let struck = false;
+
+  // Already separating: they are overlapped but on their way out, and hitting
+  // them again would pump energy in rather than take it out.
+  if (approachSpeed < 0) {
+    const normalImpulse =
+      (-(1 + restitution) * approachSpeed) / effectiveMass(a, b, armA, armB, normal);
+
+    a.applyImpulse(normal.mult(-normalImpulse), armA);
+    b.applyImpulse(normal.mult(normalImpulse), armB);
+
+    // Friction acts across the normal, against whatever sliding remains after
+    // the normal impulse, and is capped by Coulomb's rule.
+    const sliding = relative.sub(normal.mult(approachSpeed));
+    const slidingSpeed = sliding.magnitude();
+
+    if (slidingSpeed > 0) {
+      const tangent = sliding.div(slidingSpeed);
+      const wanted = slidingSpeed / effectiveMass(a, b, armA, armB, tangent);
+      const frictionImpulse = Math.min(wanted, CONTACT_FRICTION * normalImpulse);
+
+      a.applyImpulse(tangent.mult(frictionImpulse), armA);
+      b.applyImpulse(tangent.mult(-frictionImpulse), armB);
+    }
+
+    struck = true;
+  }
+
+  // Push them apart along the normal until they just touch, the heavier body
+  // moving least.
+  const total = a.mass + b.mass;
+  a.position = a.position.sub(normal.mult((overlap * b.mass) / total));
+  b.position = b.position.add(normal.mult((overlap * a.mass) / total));
+
+  return struck;
+}
+
+/**
+ * Effective mass of the pair along `direction`, counting the rotation each
+ * impulse would cause.
+ *
+ * A hit near the rim spends part of itself spinning the body rather than
+ * shoving it, so the pair resists it *less* than their masses alone suggest;
+ * this is the term that says by how much.
+ */
+function effectiveMass(
+  a: Particle,
+  b: Particle,
+  armA: Vector2D,
+  armB: Vector2D,
+  direction: Vector2D
+): number {
+  const leverA = armA.x * direction.y - armA.y * direction.x;
+  const leverB = armB.x * direction.y - armB.y * direction.x;
+
+  return (
+    1 / a.mass +
+    1 / b.mass +
+    (leverA * leverA) / a.momentOfInertia +
+    (leverB * leverB) / b.momentOfInertia
+  );
 }
 
 /**
@@ -194,10 +406,12 @@ function bounceAll(particles: Particle[], treeThreshold: number): number {
 export function resolveCollisions(
   particles: Particle[],
   mode: CollisionMode,
-  treeThreshold: number = Infinity
+  treeThreshold: number = Infinity,
+  restitution: number = RESTITUTION,
+  previous?: Vector2D[]
 ): number {
   if (mode === 'none' || particles.length < 2) return 0;
   return mode === 'merge'
-    ? mergeAll(particles, treeThreshold)
-    : bounceAll(particles, treeThreshold);
+    ? mergeAll(particles, treeThreshold, previous)
+    : bounceAll(particles, treeThreshold, restitution, previous);
 }

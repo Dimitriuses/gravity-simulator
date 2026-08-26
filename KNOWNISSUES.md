@@ -73,23 +73,29 @@ M2, done). Contact is defined at the sum of the two radii, which is exactly
 where the force law softens - past that point the bodies are inside each other
 and the simulation has nothing meaningful left to say about them.
 
-What the model does not include — roadmap M6 covers the first four:
+Bodies also carry spin, gain it from off-centre impacts through contact
+friction, and keep the pair's angular momentum through a merge (roadmap M6).
+Contact is detected along the path each body travelled rather than by testing
+overlap at the end of a step, so speed no longer lets anything through: measured
+against a 23-unit target, a pass is caught at 160, 1,000 and 20,000 units per
+frame, with or without sub-stepping.
 
-- **Merging is perfectly inelastic and irreversible.** Mass and momentum are
-  conserved exactly; kinetic energy is not, and nothing fragments. Two bodies
-  that graze at high speed merge as readily as two that settle together.
-- **No rotation.** Bodies have no angular momentum, so an off-centre impact
-  that should set something spinning just changes its path. A bounce is
-  frictionless and central.
-- **Restitution is fixed at 0.5** for bounce mode, and is not exposed in the UI.
-- **Contact detection is discrete.** Overlap is tested after each sub-step
-  rather than swept along the path between them, so a body moving further than
-  the contact window in one sub-step can still pass through. Adaptive
-  sub-stepping is what keeps this rare: the crossing timescale shrinks as a gap
-  closes, so an approach gets sliced finely. Measured on a mass-500 target 23
-  units wide, a body at 160 units per frame passes through with sub-stepping
-  turned off and is caught with it on. Turning off adaptive stepping makes
-  tunnelling easy to produce.
+What the model still does not include:
+
+- **Merging is perfectly inelastic and irreversible.** Mass, momentum and
+  angular momentum are conserved exactly; kinetic energy is not, and nothing
+  fragments. Two bodies that graze at high speed merge as readily as two that
+  settle together. Fragmentation is deferred — see roadmap M6.
+- **The sweep assumes straight-line motion within a sub-step.** It is exact for
+  the step it is given, so what is left is the curvature the step itself
+  ignores, which adaptive stepping already bounds.
+- **The positional correction is a fix-up, not physics.** Two bodies found
+  overlapping are shoved apart along the contact normal, which perturbs momentum
+  by a little. It only runs on an actual overlap, which swept detection has made
+  rare.
+- **Gravity applies no torque.** A body is a point mass to the force law, so
+  spin changes only at contact — there are no tidal effects, and nothing spins
+  up or down by orbiting.
 - **A merged body's trail has a gap in it**, where the survivor was moved to the
   pair's centre of mass. The gap is deliberate: the body was teleported there,
   and a line across it would claim a path it never took. It used to be drawn as

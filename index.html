@@ -196,6 +196,13 @@
         Contact:
         <select id="collisionSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
       </label>
+      <!-- Inline rather than stacked: every full-width slider pushes Clear All
+           and Pause closer to the fold when this section is open. -->
+      <label style="font-size: 11px;">
+        Bounciness: <span id="restitutionValue">0.5</span>
+        <input type="range" id="restitutionSlider" min="0" max="1" value="0.5" step="0.05"
+               style="width: 90px; vertical-align: middle;">
+      </label>
       <label style="font-size: 11px;">
         Forces:
         <select id="forceModeSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>

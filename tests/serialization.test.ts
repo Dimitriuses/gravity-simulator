@@ -44,6 +44,11 @@ describe('round trips', () => {
       collisionMode: 'bounce',
       forceMode: 'exact',
       adaptiveStepping: false,
+      restitution: 0.25,
+      spin: [
+        { angle: 1.5, angularVelocity: -0.02 },
+        { angle: 0, angularVelocity: 0 },
+      ],
     };
 
     expect(decoded(encodeScene(scene))).toEqual(scene);
@@ -180,6 +185,32 @@ describe('rejecting what it should reject', () => {
     // the first step and never come out.
     expect(failure('v=1;b=0,0,0,0,0')).toContain('positive mass');
     expect(failure('v=1;b=0,0,-100,0,0')).toContain('positive mass');
+  });
+
+  it('leaves out spin when nothing is spinning', () => {
+    // Most scenes have none, and an all-zeroes field would double the length of
+    // every link for nothing.
+    const text = encodeScene({ bodies: [{ x: 0, y: 0, mass: 100, vx: 0, vy: 0 }] });
+    expect(text).not.toContain('w=');
+  });
+
+  it('adds new settings as their own key, so older builds still read the link', () => {
+    // The rule that makes this safe: unknown keys are ignored. A build from
+    // before M6 sees `r=` and `w=`, skips them, and loads the rest.
+    const text = encodeScene({ preset: 'binary', restitution: 0.25 });
+    expect(text).toContain('r=0.25');
+    expect(text).toContain('v=1');
+  });
+
+  it('refuses a restitution outside the range it means anything in', () => {
+    expect(failure('v=1;s=binary;r=2')).toBe('bad restitution');
+    expect(failure('v=1;s=binary;r=-0.5')).toBe('bad restitution');
+    expect(failure('v=1;s=binary;r=bouncy')).toBe('bad restitution');
+  });
+
+  it('refuses malformed spin', () => {
+    expect(failure('v=1;b=0,0,100,0,0;w=1')).toContain('bad spin');
+    expect(failure('v=1;b=0,0,100,0,0;w=fast,0')).toContain('bad spin');
   });
 
   it('refuses settings that are not settings', () => {

@@ -34,6 +34,17 @@ export class Particle {
   maxTrailLength: number = 50;
   netForce: Vector2D = new Vector2D(0, 0); // Total gravitational force acting on this particle
 
+  /**
+   * Which way the body is facing, in radians, and how fast that is changing.
+   *
+   * Gravity never changes either: a body is treated as a point mass for the
+   * force law, and a point mass in a central field feels no torque. Spin comes
+   * from contact and from contact only, which is why it arrived with M6 rather
+   * than at the start.
+   */
+  angle: number = 0;
+  angularVelocity: number = 0;
+
   constructor(x: number, y: number, mass: number = 50, vx: number = 0, vy: number = 0) {
     this.position = new Vector2D(x, y);
     this.velocity = new Vector2D(vx, vy);
@@ -53,6 +64,46 @@ export class Particle {
    */
   static radiusForMass(mass: number): number {
     return Math.pow(mass, 1 / 3) * 2;
+  }
+
+  /**
+   * Moment of inertia, as a uniform disc: `½·m·r²`.
+   *
+   * Follows from the mass and the radius, and the radius follows from the mass,
+   * so this is one more thing that is not free to disagree with the rest.
+   */
+  get momentOfInertia(): number {
+    return 0.5 * this.mass * this.radius * this.radius;
+  }
+
+  /**
+   * Velocity of the surface point offset by `arm` from the centre.
+   *
+   * A spinning body's surface moves even when its centre does not, which is
+   * what makes an off-centre impact impart spin rather than only deflect.
+   * In two dimensions `ω × r` is `ω · perpendicular(r)`.
+   */
+  velocityAt(arm: Vector2D): Vector2D {
+    return this.velocity.add(new Vector2D(-arm.y, arm.x).mult(this.angularVelocity));
+  }
+
+  /**
+   * Apply an impulse at a point offset by `arm` from the centre.
+   *
+   * Linear response is `J/m` whatever the arm; the angular response is the
+   * cross product of the arm with the impulse over the moment of inertia, which
+   * is zero for an impulse aimed straight at the centre.
+   */
+  applyImpulse(impulse: Vector2D, arm: Vector2D): void {
+    this.velocity = this.velocity.add(impulse.div(this.mass));
+    this.angularVelocity += (arm.x * impulse.y - arm.y * impulse.x) / this.momentOfInertia;
+  }
+
+  /** Total angular momentum about `origin`: spin plus orbital. */
+  angularMomentumAbout(origin: Vector2D): number {
+    const offset = this.position.sub(origin);
+    const orbital = this.mass * (offset.x * this.velocity.y - offset.y * this.velocity.x);
+    return this.momentOfInertia * this.angularVelocity + orbital;
   }
 
   /**
@@ -115,10 +166,19 @@ export class Particle {
   absorb(other: Particle): void {
     const total = this.mass + other.mass;
 
-    this.position = this.position
+    const centre = this.position
       .mult(this.mass)
       .add(other.position.mult(other.mass))
       .div(total);
+
+    // Angular momentum of the pair about the point the merged body will sit at,
+    // counted before anything changes: each body's own spin, plus the orbital
+    // term from its motion about that point. A merge that dropped this would
+    // quietly destroy spin whenever two orbiting bodies touched.
+    const angularMomentum =
+      this.angularMomentumAbout(centre) + other.angularMomentumAbout(centre);
+
+    this.position = centre;
     this.velocity = this.velocity
       .mult(this.mass)
       .add(other.velocity.mult(other.mass))
@@ -126,6 +186,10 @@ export class Particle {
 
     this.mass = total;
     this.radius = Particle.radiusForMass(total);
+
+    // The merged body sits exactly at the point that momentum was measured
+    // about, so its own orbital term there is zero and all of it becomes spin.
+    this.angularVelocity = angularMomentum / this.momentOfInertia;
 
     // The body is now somewhere it never travelled to: everything between its
     // old position and the barycentre was skipped.

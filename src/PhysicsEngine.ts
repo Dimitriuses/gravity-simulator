@@ -9,7 +9,7 @@ import {
   MAX_SUB_STEPS,
   recommendedSubSteps,
 } from './integrators';
-import { CollisionMode, resolveCollisions } from './collisions';
+import { CollisionMode, RESTITUTION, resolveCollisions } from './collisions';
 import { DEFAULT_THETA, QuadTree, treeAt, treeOf } from './quadtree';
 
 /**
@@ -75,6 +75,13 @@ export class PhysicsEngine implements ForceField {
 
   /** Collision events resolved since the engine was created. Read by the UI. */
   collisionCount: number = 0;
+
+  /**
+   * How bouncy a contact is: 1 keeps all the approach speed, 0 none of it.
+   *
+   * Only bounce mode reads it — a merge is perfectly inelastic by definition.
+   */
+  restitution: number = RESTITUTION;
 
   /** How forces are summed. See `ForceMode`. */
   forceMode: ForceMode = 'auto';
@@ -228,6 +235,13 @@ export class PhysicsEngine implements ForceField {
   integrate(dt: number = 1): void {
     if (this.forcesDirty) this.computeForces();
     INTEGRATORS[this.integrator](this.particles, dt, this);
+
+    // Spin is advanced here rather than inside the schemes: gravity applies no
+    // torque to a point mass, so there is no angular acceleration for a
+    // higher-order scheme to integrate and `angle += ω·dt` is exact.
+    for (const particle of this.particles) {
+      particle.angle += particle.angularVelocity * dt;
+    }
   }
 
   /**
@@ -237,11 +251,13 @@ export class PhysicsEngine implements ForceField {
    * top of another while frozen should not leave two bodies inside each other
    * waiting for the clock to start.
    */
-  resolveCollisions(): number {
+  resolveCollisions(previous?: Vector2D[]): number {
     const events = resolveCollisions(
       this.particles,
       this.collisionMode,
-      this.forceMode === 'exact' ? Infinity : BARNES_HUT_THRESHOLD
+      this.forceMode === 'exact' ? Infinity : BARNES_HUT_THRESHOLD,
+      this.restitution,
+      previous
     );
 
     if (events > 0) {
@@ -280,8 +296,12 @@ export class PhysicsEngine implements ForceField {
 
     const subStep = dt / this.lastSubSteps;
     for (let i = 0; i < this.lastSubSteps; i++) {
+      // Where everything was before this sub-step, so contact detection can ask
+      // what happened *along* the way rather than only where things ended up.
+      const previous = this.particles.map((particle) => particle.position);
+
       this.integrate(subStep);
-      this.resolveCollisions();
+      this.resolveCollisions(previous);
     }
 
     // A collision in the last sub-step leaves accelerations stale, and the
