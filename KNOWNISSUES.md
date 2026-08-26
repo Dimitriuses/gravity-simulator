@@ -90,6 +90,10 @@ What the model does not include — roadmap M6 covers the first four:
   units wide, a body at 160 units per frame passes through with sub-stepping
   turned off and is caught with it on. Turning off adaptive stepping makes
   tunnelling easy to produce.
+- **A merged body's trail has a gap in it**, where the survivor was moved to the
+  pair's centre of mass. The gap is deliberate: the body was teleported there,
+  and a line across it would claim a path it never took. It used to be drawn as
+  a line, and appeared as an unexplained zigzag in the README screenshots.
 - **Merging destroys the interesting dynamics**, which is a property of merging
   rather than a defect. A three-body configuration that would be worth watching
   becomes one body the moment two of them touch. Bounce mode exists for that

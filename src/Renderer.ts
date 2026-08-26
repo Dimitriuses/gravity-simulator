@@ -47,6 +47,33 @@ const TRAIL_BANDS = 16;
  * expensive call, and be illegible.
  */
 const MIN_LABELLED_DIAMETER_PX = 18;
+
+/**
+ * HSV to RGB, for the one place that writes pixels directly.
+ *
+ * Everything else asks p5 for a colour, but `image.pixels` is a raw byte array
+ * and p5's colour object would have to be built and unpacked per pixel.
+ */
+function hsvToRgb(hue: number, saturation: number, value: number): [number, number, number] {
+  const c = value * saturation;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = value - c;
+
+  const [r, g, b] =
+    hue < 60
+      ? [c, x, 0]
+      : hue < 120
+        ? [x, c, 0]
+        : hue < 180
+          ? [0, c, x]
+          : hue < 240
+            ? [0, x, c]
+            : hue < 300
+              ? [x, 0, c]
+              : [c, 0, x];
+
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
 const COLOR_PARTICLE_GLOW = [100, 150, 255] as const;
 const COLOR_PARTICLE_BODY = [150, 200, 255] as const;
 const COLOR_PARTICLE_EDGE = [200, 220, 255] as const;
@@ -104,6 +131,9 @@ export class Renderer {
    */
   fieldScale: { min: number; max: number } | null = null;
 
+  /** Reused between frames; see `drawHeightmap`. */
+  private heightmapImage: p5.Image | null = null;
+
   constructor(p: p5, engine: PhysicsEngine) {
     this.p = p;
     this.engine = engine;
@@ -144,6 +174,10 @@ export class Renderer {
     const mode = this.engine.vectorField.fieldMode;
     if (mode === 'contours') {
       this.drawContours();
+      return;
+    }
+    if (mode === 'heightmap') {
+      this.drawHeightmap();
       return;
     }
     if (mode === 'streamlines') {
@@ -189,6 +223,69 @@ export class Renderer {
       }
     }
 
+    this.p.pop();
+  }
+
+  /**
+   * The potential as shaded ground: deep wells bright, flat space dark.
+   *
+   * Drawn as a small `p5.Image` stretched over the view rather than as one
+   * rectangle per cell. A few thousand `rect()` calls a frame is exactly the
+   * kind of per-item state change that made the trails and the particle pass
+   * expensive; writing pixels and letting the canvas scale the result costs one
+   * draw call, and the interpolation it does on the way up is the smooth
+   * gradient a heightmap wants anyway.
+   *
+   * The scale is logarithmic in |potential|, for the same reason the contour
+   * levels are: the value spans orders of magnitude across a single view, and
+   * a linear ramp puts every visible change inside the innermost few pixels.
+   */
+  private drawHeightmap(): void {
+    const grid = this.engine.vectorField.getHeightmap();
+    if (!grid || grid.min >= 0) return;
+
+    const view = this.engine.vectorField.lastView;
+    if (!view) return;
+
+    const deepest = Math.abs(grid.min);
+    const shallowest = Math.max(Math.abs(grid.max), deepest * 1e-4);
+    this.fieldScale = { min: shallowest, max: deepest };
+
+    const logMin = Math.log(shallowest);
+    const logMax = Math.log(deepest);
+    const columns = grid.columns + 1;
+    const rows = grid.rows + 1;
+
+    // The image is reused between frames: allocating one per frame is a
+    // megabyte of garbage a second at this resolution.
+    if (!this.heightmapImage || this.heightmapImage.width !== columns || this.heightmapImage.height !== rows) {
+      this.heightmapImage = this.p.createImage(columns, rows);
+    }
+
+    const image = this.heightmapImage;
+    image.loadPixels();
+
+    for (let i = 0; i < columns * rows; i++) {
+      const magnitude = Math.abs(grid.values[i]);
+      const t =
+        logMax === logMin
+          ? 0
+          : Math.min(1, Math.max(0, (Math.log(Math.max(magnitude, shallowest)) - logMin) / (logMax - logMin)));
+
+      // Same reading as everywhere else: blue is weak and far, red is deep.
+      // Value rises with depth too, so the wells glow rather than merely
+      // changing hue — which is what makes it read as terrain.
+      const [r, g, b] = hsvToRgb(240 - t * 240, 0.85, 0.15 + t * 0.85);
+      const pixel = i * 4;
+      image.pixels[pixel] = r;
+      image.pixels[pixel + 1] = g;
+      image.pixels[pixel + 2] = b;
+      image.pixels[pixel + 3] = 235;
+    }
+
+    image.updatePixels();
+    this.p.push();
+    this.p.image(image, view.minX, view.minY, view.maxX - view.minX, view.maxY - view.minY);
     this.p.pop();
   }
 
@@ -322,9 +419,16 @@ export class Renderer {
         const alpha = this.p.map((start + end) / 2, 0, trail.length - 1, 0, 255);
         this.p.stroke(...COLOR_TRAIL, alpha);
 
+        // A jump breaks the band into separate polylines: the body was moved
+        // there rather than travelling there, and joining the two would draw a
+        // segment it never covered.
         this.p.beginShape();
         for (let i = start; i <= end; i++) {
-          this.p.vertex(trail[i].x, trail[i].y);
+          if (i > start && trail[i].jumped) {
+            this.p.endShape();
+            this.p.beginShape();
+          }
+          this.p.vertex(trail[i].position.x, trail[i].position.y);
         }
         this.p.endShape();
       }

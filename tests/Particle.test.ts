@@ -83,7 +83,7 @@ describe('Particle', () => {
 
       expect(p.trail.length).toBe(p.maxTrailLength);
       // The cap drops the oldest points, so the newest position is last.
-      expect(p.trail[p.trail.length - 1].x).toBeCloseTo(p.position.x, 12);
+      expect(p.trail[p.trail.length - 1].position.x).toBeCloseTo(p.position.x, 12);
     });
 
     it('stores copies, so later movement does not rewrite history', () => {
@@ -91,7 +91,38 @@ describe('Particle', () => {
       p.recordTrail();
       p.position = p.position.add(new Vector2D(50, 0));
 
-      expect(p.trail[0].x).toBe(0);
+      expect(p.trail[0].position.x).toBe(0);
+    });
+  });
+
+  describe('trail continuity through a merge', () => {
+    it('marks the point a merge teleported the body to', () => {
+      // A merge moves the survivor to the pair's centre of mass. That is a real
+      // discontinuity, and a trail drawn straight across it claims a path the
+      // body never took — the kink visible in the README screenshots.
+      const heavy = new Particle(0, 0, 500);
+      const light = new Particle(heavy.radius, 0, 500);
+
+      heavy.recordTrail();
+      expect(heavy.trail[0].jumped).toBe(false);
+
+      heavy.absorb(light);
+      heavy.recordTrail();
+
+      expect(heavy.trail[1].jumped).toBe(true);
+      expect(heavy.trail[1].position.x).toBeCloseTo(heavy.position.x, 12);
+    });
+
+    it('marks only the point the jump landed on', () => {
+      const heavy = new Particle(0, 0, 500);
+      heavy.absorb(new Particle(heavy.radius, 0, 500));
+
+      heavy.recordTrail();
+      heavy.position = heavy.position.add(new Vector2D(5, 0));
+      heavy.recordTrail();
+
+      expect(heavy.trail[0].jumped).toBe(true);
+      expect(heavy.trail[1].jumped).toBe(false);
     });
   });
 

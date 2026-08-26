@@ -1,7 +1,7 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
 import { DEFAULT_THETA, QuadTree } from './quadtree';
-import { ContourLine, traceContours } from './contours';
+import { ContourLine, ScalarGrid, sampleScalarGrid, traceContours } from './contours';
 import { Streamline, defaultStreamlineOptions, traceStreamlines } from './streamlines';
 import { gravitationalPotential } from './forces';
 
@@ -53,6 +53,16 @@ const GRADIENT_FINE_FRACTION = 0.5;
 
 /** How close to a body counts as close, as a fraction of the influence range. */
 const GRADIENT_CLOSE_FRACTION = 0.15;
+
+/**
+ * Cells across the wider axis for the heightmap.
+ *
+ * Coarser than the contour grid: the image is stretched over the view and the
+ * canvas interpolates between cells, so the extra samples a finer grid would
+ * cost buy very little. A contour has no such luxury — its accuracy *is* its
+ * grid.
+ */
+const HEIGHTMAP_RESOLUTION = 64;
 
 /**
  * Upper bound on samples per frame. Reached only by zooming far out in uniform
@@ -119,7 +129,13 @@ export class OccupancyGrid {
  * the last two draw something else entirely and are described in
  * `contours.ts` and `streamlines.ts`.
  */
-export type FieldMode = 'adaptive' | 'uniform' | 'gradient' | 'contours' | 'streamlines';
+export type FieldMode =
+  | 'adaptive'
+  | 'uniform'
+  | 'gradient'
+  | 'contours'
+  | 'heightmap'
+  | 'streamlines';
 
 /** Labels for the UI, in the order they should appear. */
 export const FIELD_MODE_LABELS: ReadonlyArray<{ id: FieldMode; label: string }> = [
@@ -127,6 +143,7 @@ export const FIELD_MODE_LABELS: ReadonlyArray<{ id: FieldMode; label: string }> 
   { id: 'adaptive', label: 'Arrows (dense near bodies)' },
   { id: 'uniform', label: 'Arrows (regular grid)' },
   { id: 'contours', label: 'Equipotential contours' },
+  { id: 'heightmap', label: 'Potential heightmap' },
   { id: 'streamlines', label: 'Streamlines' },
 ];
 
@@ -147,6 +164,17 @@ export class VectorField {
   samples: VectorSample[] = [];
   contours: ContourLine[] = [];
   streamlines: Streamline[] = [];
+  heightmap: ScalarGrid | null = null;
+
+  /**
+   * The view the current geometry was built for.
+   *
+   * The heightmap is an image stretched across exactly this rectangle, so the
+   * renderer needs the same bounds the sampler used — taking the camera's
+   * current bounds instead would stretch last frame's image over this frame's
+   * view while panning.
+   */
+  lastView: ViewBounds | null = null;
   maxInfluenceRadius: number = 300; // Range over which vectors are drawn (user-adjustable)
   baseGridSize: number = 30; // Nominal sample spacing
   fieldMode: FieldMode = 'gradient';
@@ -189,6 +217,8 @@ export class VectorField {
     this.samples = [];
     this.contours = [];
     this.streamlines = [];
+    this.heightmap = null;
+    this.lastView = view;
     this.occupancy.clear();
     this.tree = tree;
     this.theta = theta;
@@ -209,6 +239,18 @@ export class VectorField {
         this.contours = traceContours(
           (x, y) => this.potentialAt(new Vector2D(x, y), particles, G),
           view
+        );
+        break;
+      case 'heightmap':
+        // The same grid the contours are traced from, handed over unreduced:
+        // one draws its level sets, the other shades every cell. Sampled a
+        // little more coarsely, because a heightmap is stretched over the view
+        // and reads perfectly well interpolated, while a contour's accuracy is
+        // set by the grid it is traced on.
+        this.heightmap = sampleScalarGrid(
+          (x, y) => this.potentialAt(new Vector2D(x, y), particles, G),
+          view,
+          HEIGHTMAP_RESOLUTION
         );
         break;
       case 'streamlines':
@@ -511,5 +553,10 @@ export class VectorField {
   /** Traced streamlines, when the mode draws them. */
   getStreamlines(): Streamline[] {
     return this.streamlines;
+  }
+
+  /** The sampled potential, when the mode shades it. */
+  getHeightmap(): ScalarGrid | null {
+    return this.heightmap;
   }
 }

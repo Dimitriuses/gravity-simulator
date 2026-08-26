@@ -752,8 +752,16 @@ const sketch = (p: p5) => {
     const mode = engine.vectorField.fieldMode;
     const scale = renderer.fieldScale;
 
-    const title =
-      mode === 'contours' ? 'Equipotentials:' : mode === 'streamlines' ? 'Streamlines:' : 'Vector Field:';
+    // Contours and the heightmap draw the same scalar — the potential — one as
+    // level sets and one as shading, so they report the same units.
+    const showsPotential = mode === 'contours' || mode === 'heightmap';
+    const title = showsPotential
+      ? mode === 'contours'
+        ? 'Equipotentials:'
+        : 'Potential:'
+      : mode === 'streamlines'
+        ? 'Streamlines:'
+        : 'Vector Field:';
     if (legendTitle.textContent !== title) legendTitle.textContent = title;
 
     if (mode === 'streamlines') {
@@ -780,7 +788,7 @@ const sketch = (p: p5) => {
     setLegendText(legendMin, format(scale.min));
     setLegendText(
       legendScale,
-      mode === 'contours' ? 'log scale, potential per unit mass' : 'log scale, force per unit mass'
+      showsPotential ? 'log scale, potential per unit mass' : 'log scale, force per unit mass'
     );
   }
 

@@ -84,22 +84,35 @@ export function contourLevels(min: number, max: number, count: number): number[]
 }
 
 /**
- * Trace the level sets of `scalarAt` across `view`.
+ * A scalar field sampled on a regular grid over the view.
  *
- * `resolution` is the target number of cells across the wider axis; the grid is
- * squared off from the view's aspect and clamped to `MAX_CONTOUR_CELLS`.
+ * Shared by the contour tracer and the heightmap, which want exactly the same
+ * thing and should not each grow their own copy of the sampling arithmetic.
  */
-export function traceContours(
+export interface ScalarGrid {
+  values: Float64Array;
+  columns: number;
+  rows: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * Sample `scalarAt` on a grid over `view`, squaring off the cells and staying
+ * inside `MAX_CONTOUR_CELLS`.
+ *
+ * One evaluation per grid *corner*, reused by the four cells that share it;
+ * sampling per cell instead would cost four times as much.
+ */
+export function sampleScalarGrid(
   scalarAt: (x: number, y: number) => number,
   view: ViewBounds,
-  levelCount: number = 12,
-  resolution: number = 90
-): ContourLine[] {
+  resolution: number
+): ScalarGrid | null {
   const width = view.maxX - view.minX;
   const height = view.maxY - view.minY;
-  if (!(width > 0) || !(height > 0)) return [];
+  if (!(width > 0) || !(height > 0)) return null;
 
-  // Square cells, so a contour is not stretched along one axis.
   const cell = Math.max(width, height) / resolution;
   let columns = Math.max(1, Math.ceil(width / cell));
   let rows = Math.max(1, Math.ceil(height / cell));
@@ -112,10 +125,8 @@ export function traceContours(
 
   const stepX = width / columns;
   const stepY = height / rows;
-
-  // One evaluation per grid corner, reused by the four cells that share it.
-  // Sampling per cell instead would cost four times as much.
   const values = new Float64Array((columns + 1) * (rows + 1));
+
   let min = Infinity;
   let max = -Infinity;
 
@@ -128,7 +139,29 @@ export function traceContours(
     }
   }
 
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+
+  return { values, columns, rows, min, max };
+}
+
+/**
+ * Trace the level sets of `scalarAt` across `view`.
+ *
+ * `resolution` is the target number of cells across the wider axis; the grid is
+ * squared off from the view's aspect and clamped to `MAX_CONTOUR_CELLS`.
+ */
+export function traceContours(
+  scalarAt: (x: number, y: number) => number,
+  view: ViewBounds,
+  levelCount: number = 12,
+  resolution: number = 90
+): ContourLine[] {
+  const grid = sampleScalarGrid(scalarAt, view, resolution);
+  if (!grid) return [];
+
+  const { values, columns, rows, min, max } = grid;
+  const stepX = (view.maxX - view.minX) / columns;
+  const stepY = (view.maxY - view.minY) / rows;
 
   const lines: ContourLine[] = [];
 

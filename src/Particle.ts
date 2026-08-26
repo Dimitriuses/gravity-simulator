@@ -2,6 +2,20 @@ import { Vector2D } from './Vector2D';
 import { gravitationalForce } from './forces';
 
 /**
+ * One recorded position, and whether the body *jumped* to get there.
+ *
+ * A merge moves the surviving body to the pair's centre of mass, which is a
+ * real discontinuity rather than a fast piece of travel. Drawing a line across
+ * it claims a path the body never took — visible in the README screenshots as a
+ * kink in an otherwise smooth orbit — so the jump is recorded and the renderer
+ * lifts the pen instead.
+ */
+export interface TrailPoint {
+  position: Vector2D;
+  jumped: boolean;
+}
+
+/**
  * Represents a particle with mass in the gravity simulation
  */
 export class Particle {
@@ -10,7 +24,13 @@ export class Particle {
   acceleration: Vector2D;
   mass: number;
   radius: number;
-  trail: Vector2D[] = [];
+  trail: TrailPoint[] = [];
+
+  /**
+   * Set when something moved this body other than integration, and cleared by
+   * the next `recordTrail()`.
+   */
+  private teleported = false;
   maxTrailLength: number = 50;
   netForce: Vector2D = new Vector2D(0, 0); // Total gravitational force acting on this particle
 
@@ -70,7 +90,9 @@ export class Particle {
    * a second and stutter in length as the sub-step count changed.
    */
   recordTrail(): void {
-    this.trail.push(this.position.copy());
+    this.trail.push({ position: this.position.copy(), jumped: this.teleported });
+    this.teleported = false;
+
     if (this.trail.length > this.maxTrailLength) {
       this.trail.shift();
     }
@@ -104,6 +126,10 @@ export class Particle {
 
     this.mass = total;
     this.radius = Particle.radiusForMass(total);
+
+    // The body is now somewhere it never travelled to: everything between its
+    // old position and the barycentre was skipped.
+    this.teleported = true;
   }
 
   /**

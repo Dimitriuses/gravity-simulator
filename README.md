@@ -43,11 +43,12 @@ inferred from how things move.
 - **Scenes travel in a link.** **Copy Link** writes the live configuration —
   every body where it actually is, plus the camera and the physics settings —
   into the URL fragment, and opening that URL restores it.
-- **Five ways to draw the field.** Three arrow modes — *gradient* (the default,
+- **Six ways to draw the field.** Three arrow modes — *gradient* (the default,
   which subdivides only where the field changes), *adaptive* (four density zones
   per body) and *uniform* (a regular lattice) — plus **equipotential contours**,
   which show the saddle between two bodies and the curve that closes around
-  both, and **streamlines**, which follow the flow instead of sampling it.
+  both, a **potential heightmap** that shades the same scalar as terrain, and
+  **streamlines**, which follow the flow instead of sampling it.
 - **A legend that says what the colours are worth.** Arrow length and hue are
   normalized against the range present in each frame, so the legend prints that
   range — strong and weak, in force per unit mass — and updates it every frame.
@@ -61,8 +62,8 @@ inferred from how things move.
 
 | | |
 |---|---|
-| ![Adaptive sampling, dense near the mass](screenshots/02-adaptive-field.png) | ![Uniform lattice across the view](screenshots/03-uniform-field.png) |
-| **Adaptive** — samples cluster where the field changes fastest | **Uniform** — even lattice, better for reading overall structure |
+| ![Uniform lattice across the view](screenshots/03-uniform-field.png) | ![Dragging to aim a new body](screenshots/04-drag-to-launch.png) |
+| **Uniform arrows** — an even lattice, better for reading overall structure | **Drag to launch** — the drag vector sets initial velocity |
 | ![Dragging to aim a new body](screenshots/04-drag-to-launch.png) | ![Force and velocity arrows on two satellites](screenshots/05-particle-vectors.png) |
 | **Drag to launch** — the drag vector sets initial velocity | **Per-body vectors** — orange force, cyan velocity |
 
@@ -70,6 +71,8 @@ inferred from how things move.
 |---|---|
 | ![Equipotential contours around a two-body system](screenshots/07-equipotentials.png) | ![Streamlines converging on each body](screenshots/08-streamlines.png) |
 | **Equipotentials** — the level sets of the potential, pinching around the second body | **Streamlines** — the flow itself, evenly spaced |
+| ![The potential shaded as terrain](screenshots/09-heightmap.png) | ![Adaptive sampling, dense near the mass](screenshots/02-adaptive-field.png) |
+| **Heightmap** — the same potential as shaded ground, deep wells bright | **Adaptive arrows** — four density zones around every body |
 
 ![The figure-eight three-body choreography, its full period drawn as a trail](screenshots/06-figure-eight.png)
 
@@ -94,7 +97,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
-the *Field* dropdown switches between the five ways of drawing it. Bodies you add yourself inherit
+the *Field* dropdown switches between the six ways of drawing it. Bodies you add yourself inherit
 the loaded scene's trail length, so they leave the same length of trail as the
 ones that were already there.
 
@@ -204,7 +207,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 209 unit tests, headless, ~16s
+npm test            # 216 unit tests, headless, ~13s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -223,7 +226,7 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 71 properties, including that the background is the intended navy, that
+asserts 73 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the

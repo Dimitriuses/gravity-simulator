@@ -199,6 +199,12 @@ five ways, chosen from one dropdown, and says what its colours are worth.
   than a fixed pattern of rings per body. Measured: a third of the samples for a
   small scene and about a quarter of the time, and it still reaches every body.
 
+Added after the fact, at request: a **potential heightmap**, which shades the
+same scalar the contours trace instead of outlining it. It shares their grid
+sampler, and draws as one scaled image rather than a few thousand rectangles —
+the same "one state change, not one per item" rule the trails and the particle
+pass are built on.
+
 Both new modules know nothing about gravity — they take a function and return
 geometry — which is what let them be tested against fields whose contours and
 flow are known in closed form: a cone's level sets are circles of a radius you

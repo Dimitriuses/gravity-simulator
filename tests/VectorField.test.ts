@@ -336,3 +336,67 @@ describe('gradient mode', () => {
     expect(fieldWith('gradient', particles).getSamples().length).toBeLessThanOrEqual(MAX_SAMPLES);
   });
 });
+
+describe('heightmap mode', () => {
+  const view: ViewBounds = { minX: -400, minY: -300, maxX: 400, maxY: 300 };
+
+  function heightmapOf(particles: Particle[]) {
+    const field = new VectorField(30);
+    field.fieldMode = 'heightmap';
+    field.update(particles, SIMULATION_G, view);
+    return field.getHeightmap();
+  }
+
+  it('samples the potential, which is negative and deepest at the body', () => {
+    const grid = heightmapOf([new Particle(0, 0, 5000)])!;
+
+    expect(grid).not.toBeNull();
+    expect(grid.max).toBeLessThan(0);
+    expect(grid.min).toBeLessThan(grid.max);
+
+    // The deepest sample should be the one nearest the body, at the middle of
+    // the view.
+    const middle = Math.round(grid.rows / 2) * (grid.columns + 1) + Math.round(grid.columns / 2);
+    expect(grid.values[middle]).toBeCloseTo(grid.min, 6);
+  });
+
+  it('covers the whole view, corner to corner', () => {
+    const grid = heightmapOf([new Particle(0, 0, 5000)])!;
+
+    // One value per grid corner: cells plus a fencepost on each axis.
+    expect(grid.values.length).toBe((grid.columns + 1) * (grid.rows + 1));
+    expect(grid.columns).toBeGreaterThan(1);
+    expect(grid.rows).toBeGreaterThan(1);
+  });
+
+  it('keeps square cells, so the picture is not stretched', () => {
+    const wide: ViewBounds = { minX: -800, minY: -100, maxX: 800, maxY: 100 };
+    const field = new VectorField(30);
+    field.fieldMode = 'heightmap';
+    field.update([new Particle(0, 0, 5000)], SIMULATION_G, wide);
+
+    const grid = field.getHeightmap()!;
+    const cellWidth = (wide.maxX - wide.minX) / grid.columns;
+    const cellHeight = (wide.maxY - wide.minY) / grid.rows;
+
+    expect(cellWidth / cellHeight).toBeCloseTo(1, 1);
+  });
+
+  it('ignores the influence radius, because a potential has no cutoff', () => {
+    // The arrows stop at the range slider; a heightmap that did would show a
+    // disc of colour with a hard edge and flat ground beyond it.
+    const field = new VectorField(30);
+    field.fieldMode = 'heightmap';
+    field.maxInfluenceRadius = 50;
+    field.update([new Particle(0, 0, 5000)], SIMULATION_G, view);
+
+    const grid = field.getHeightmap()!;
+    // The far corner is well outside the influence radius and must still carry
+    // the body's potential rather than zero.
+    expect(grid.values[0]).toBeLessThan(0);
+  });
+
+  it('produces nothing when there is nothing to draw', () => {
+    expect(heightmapOf([])).toBeNull();
+  });
+});

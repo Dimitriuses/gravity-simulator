@@ -167,6 +167,22 @@ split; the rule that came with it is that softening, and the contact distance it
 clamps to, live in exactly one place. Two copies of a softened inverse-square
 law is two things to keep in step.
 
+### A trail may not be drawn across a jump
+
+`Particle.absorb()` moves the surviving body to the pair's centre of mass. That
+is a teleport, not travel, so `TrailPoint.jumped` marks the point it lands on
+and `Renderer.drawTrails()` lifts the pen there instead of joining the two.
+
+Without it the trail draws a straight line across ground the body never covered,
+followed by the direction change the merged velocity brings — which reads as a
+zigzag kink in an otherwise smooth orbit, and is exactly what was visible in
+three of the README screenshots. Measured on the scene those screenshots are
+composed from: one trail step of 10.50 units where every other step in nine
+hundred frames was within 1.1x of 3.59.
+
+If anything else ever moves a body other than integration, it has to set the
+same flag.
+
 ### Trails record frames, not sub-steps
 
 `Particle.recordTrail()` is called once per `PhysicsEngine.step()`, after the

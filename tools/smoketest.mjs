@@ -397,6 +397,7 @@ try {
   for (const [mode, title] of [
     ['gradient', 'Vector Field:'],
     ['contours', 'Equipotentials:'],
+    ['heightmap', 'Potential:'],
     ['streamlines', 'Streamlines:'],
   ]) {
     await page.selectOption('#fieldModeSelect', mode);
@@ -415,6 +416,17 @@ try {
       `${lit} lit pixels, legend says "${legend.title}"`
     );
   }
+
+  // A heightmap covers the canvas rather than drawing marks on it, so the test
+  // that it rendered is that the background is gone.
+  await page.selectOption('#fieldModeSelect', 'heightmap');
+  await page.waitForTimeout(900);
+  const background = await onCanvas(countNear, { rgb: [10, 15, 30], tol: 6 });
+  check(
+    'the heightmap shades the whole view rather than marking it',
+    background < 5000,
+    `${background} pixels left at the background colour`
+  );
 
   // The scale bar is the whole of "absolute magnitude": arrow length and hue
   // are normalized against the frame, so without a number the picture has no
@@ -526,6 +538,13 @@ try {
     };
 
     // A heavy primary with two satellites on near-circular orbits.
+    //
+    // The two satellites are placed a few frames apart, so the configuration is
+    // never quite symmetric, and at 200 units they are heavy enough (4% of the
+    // primary) to perturb each other. Measured: their separation decays from
+    // 400 units to nothing over about 670 frames and they merge — which is why
+    // the later screenshots show one body of mass 400 rather than two of 200.
+    // Nothing is wrong; it is what this configuration does.
     // v = sqrt(G·M/r) with G = 0.5, M = 5000, r = 200  ->  v ≈ 3.54 world
     // units, and the drag-to-velocity factor is 0.05, so ≈ 71 px of drag.
     await page.click('#clearBtn');
@@ -606,6 +625,11 @@ try {
     await page.selectOption('#fieldModeSelect', 'streamlines');
     await page.waitForTimeout(2500);
     await shot('08-streamlines.png');
+
+    // The same potential the contours trace, shaded instead of outlined.
+    await page.selectOption('#fieldModeSelect', 'heightmap');
+    await page.waitForTimeout(2500);
+    await shot('09-heightmap.png');
 
     await page.selectOption('#fieldModeSelect', 'gradient');
   }
