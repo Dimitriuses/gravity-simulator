@@ -202,12 +202,11 @@
       </label>
     </details>
     <div class="section" style="font-weight: normal;">
+      <!-- Options generated from FIELD_MODE_LABELS in src/VectorField.ts, for
+           the same reason the scene list is. -->
       <label style="font-size: 11px; margin-top: 0;">
-        Grid Mode:
-        <select id="gridModeSelect" style="margin-left: 5px; padding: 2px;">
-          <option value="adaptive">Adaptive (Dense near objects)</option>
-          <option value="uniform">Uniform (Regular grid)</option>
-        </select>
+        Field:
+        <select id="fieldModeSelect" style="margin-left: 5px; padding: 2px; max-width: 190px;"></select>
       </label>
     </div>
     <div style="display: flex; gap: 4px;">
@@ -227,13 +226,21 @@
   </div>
   
   <div id="legend" style="position: absolute; bottom: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); padding: 10px; border-radius: 8px; font-size: 11px; z-index: 1000; pointer-events: auto;">
-    <strong>Vector Field:</strong><br>
-    <div style="margin-top: 5px;">
-      <span style="color: #ff0000; font-weight: bold;">●</span> Strong Force<br>
+    <strong id="legendTitle">Vector Field:</strong><br>
+    <div id="legendRamp" style="margin-top: 5px;">
+      <span style="color: #ff0000; font-weight: bold;">●</span> Strong
+      <span id="legendMax" style="color: #444;">—</span><br>
       <span style="color: #ffff00; font-weight: bold;">●</span> Medium-High<br>
       <span style="color: #00ff00; font-weight: bold;">●</span> Medium<br>
       <span style="color: #00ffff; font-weight: bold;">●</span> Medium-Low<br>
-      <span style="color: #0000ff; font-weight: bold;">●</span> Weak Force
+      <span style="color: #0000ff; font-weight: bold;">●</span> Weak
+      <span id="legendMin" style="color: #444;">—</span>
+    </div>
+    <!-- Filled in each frame from the range actually on screen. Arrow length
+         and hue are normalized against that range, so without the numbers the
+         picture has no absolute scale at all — see KNOWNISSUES.md. -->
+    <div id="legendScale" style="margin-top: 4px; font-size: 10px; color: #666;">
+      log scale, per unit mass
     </div>
     <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ccc;">
       <strong>Particle Vectors:</strong><br>

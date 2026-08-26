@@ -255,6 +255,58 @@ export class QuadTree {
     return new Vector2D(acceleration.x, acceleration.y);
   }
 
+  /**
+   * Gravitational potential at a point, −G·m/r summed over the tree.
+   *
+   * The same opening-angle rule as `accelerationAt`, so a cell far enough to
+   * stand in for its contents does so here too, and theta = 0 is again the
+   * exact sum. There is no range cutoff: a contour drawn from a potential that
+   * ignored distant mass would break along the cutoff circle, and the whole
+   * point of an equipotential is that it is global.
+   */
+  potentialAt(x: number, y: number, G: number, theta: number = DEFAULT_THETA): number {
+    return this.walkPotential(this.root, x, y, G, theta * theta);
+  }
+
+  private walkPotential(
+    node: QuadNode,
+    x: number,
+    y: number,
+    G: number,
+    thetaSquared: number
+  ): number {
+    if (node.mass === 0) return 0;
+
+    const dx = node.comX - x;
+    const dy = node.comY - y;
+    const distanceSquared = dx * dx + dy * dy;
+
+    if (node.children) {
+      const width = node.half * 2;
+
+      if (width * width < thetaSquared * distanceSquared) {
+        const distance = Math.max(Math.sqrt(distanceSquared), node.maxRadius);
+        return -(G * node.mass) / distance;
+      }
+
+      let total = 0;
+      for (const child of node.children) {
+        total += this.walkPotential(child, x, y, G, thetaSquared);
+      }
+      return total;
+    }
+
+    let total = 0;
+    for (const index of node.bodies) {
+      const body = this.bodies[index];
+      const bodyDx = body.x - x;
+      const bodyDy = body.y - y;
+      const distance = Math.max(Math.sqrt(bodyDx * bodyDx + bodyDy * bodyDy), body.radius);
+      total -= (G * body.mass) / distance;
+    }
+    return total;
+  }
+
   private walk(
     node: QuadNode,
     x: number,

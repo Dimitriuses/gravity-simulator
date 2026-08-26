@@ -252,7 +252,7 @@ try {
     return { before, after };
   };
 
-  for (const id of ['gridModeSelect', 'presetSelect', 'controls']) {
+  for (const id of ['fieldModeSelect', 'presetSelect', 'controls']) {
     const counts = await spawnFromUiEvent(id);
     check(
       `a mouse event on #${id} does not place a body`,
@@ -351,19 +351,105 @@ try {
   // baseline measured at the end of the run rather than a guessed threshold.
   const adaptiveLit = await fieldPixels();
 
-  await page.selectOption('#gridModeSelect', 'uniform');
+  await page.selectOption('#fieldModeSelect', 'uniform');
   await page.waitForTimeout(600);
   const uniformLit = await fieldPixels();
 
   check('adaptive grid mode renders a field', adaptiveLit > 1000, `${adaptiveLit} lit pixels`);
   check('uniform grid mode renders a field', uniformLit > 1000, `${uniformLit} lit pixels`);
+
+  // Whether two modes draw *differently* is a question about the picture, not
+  // about how much of it is lit: two arrangements of arrows can light much the
+  // same number of pixels while putting them in entirely different places, and
+  // comparing the counts made this check fail on a pair that plainly differ.
+  // Pausing first makes the frame the only variable.
+  await page.click('#pauseBtn');
+  await page.waitForTimeout(400);
+
+  const modeHashes = {};
+  for (const mode of ['gradient', 'adaptive', 'uniform']) {
+    await page.selectOption('#fieldModeSelect', mode);
+    await page.waitForTimeout(500);
+    modeHashes[mode] = await onCanvas((data) => {
+      let hash = 0;
+      for (let i = 0; i < data.length; i += 997 * 4) hash = (hash * 31 + data[i]) >>> 0;
+      return hash;
+    });
+  }
+
+  const distinct = new Set(Object.values(modeHashes));
   check(
-    'the two grid modes render differently',
-    Math.abs(adaptiveLit - uniformLit) > 200,
-    `adaptive ${adaptiveLit} vs uniform ${uniformLit} lit pixels`
+    'each arrow mode draws its own picture',
+    distinct.size === 3,
+    Object.entries(modeHashes)
+      .map(([mode, hash]) => `${mode}=${hash}`)
+      .join(', ')
   );
 
-  await page.selectOption('#gridModeSelect', 'adaptive');
+  await page.click('#pauseBtn');
+  await page.waitForTimeout(400);
+
+  // ── The other ways of drawing a field ──────────────────────────────────────
+  // Contours and streamlines are proved as geometry in their own tests, against
+  // fields whose level sets and flow are known in closed form. What only exists
+  // here is whether they reach the canvas at all, and whether the legend
+  // describes what is on it.
+  for (const [mode, title] of [
+    ['gradient', 'Vector Field:'],
+    ['contours', 'Equipotentials:'],
+    ['streamlines', 'Streamlines:'],
+  ]) {
+    await page.selectOption('#fieldModeSelect', mode);
+    await page.waitForTimeout(800);
+
+    const lit = await fieldPixels();
+    const legend = await page.evaluate(() => ({
+      title: document.getElementById('legendTitle').textContent,
+      scale: document.getElementById('legendScale').textContent,
+      max: document.getElementById('legendMax').textContent,
+    }));
+
+    check(
+      `${mode} mode draws something and names itself`,
+      lit > 500 && legend.title === title,
+      `${lit} lit pixels, legend says "${legend.title}"`
+    );
+  }
+
+  // The scale bar is the whole of "absolute magnitude": arrow length and hue
+  // are normalized against the frame, so without a number the picture has no
+  // absolute reading at all.
+  await page.selectOption('#fieldModeSelect', 'gradient');
+  await page.waitForTimeout(800);
+  const scaleBar = await page.evaluate(() => ({
+    max: document.getElementById('legendMax').textContent,
+    min: document.getElementById('legendMin').textContent,
+    scale: document.getElementById('legendScale').textContent,
+  }));
+  check(
+    'the legend reports the field strengths actually on screen',
+    Number(scaleBar.max) > 0 &&
+      Number(scaleBar.min) > 0 &&
+      Number(scaleBar.max) > Number(scaleBar.min) &&
+      /force per unit mass/.test(scaleBar.scale ?? ''),
+    `strong ${scaleBar.max}, weak ${scaleBar.min} — "${scaleBar.scale}"`
+  );
+
+  // Streamlines have a direction but no magnitude, so the ramp is hidden
+  // rather than left describing nothing.
+  await page.selectOption('#fieldModeSelect', 'streamlines');
+  await page.waitForTimeout(800);
+  const streamlineLegend = await page.evaluate(() => ({
+    rampVisible: document.getElementById('legendRamp').offsetParent !== null,
+    max: document.getElementById('legendMax').textContent,
+  }));
+  check(
+    'the strength ramp is hidden where strength is not shown',
+    !streamlineLegend.rampVisible && streamlineLegend.max === '',
+    `ramp visible=${streamlineLegend.rampVisible}, stale value="${streamlineLegend.max}"`
+  );
+
+  await page.selectOption('#fieldModeSelect', 'adaptive');
   await page.waitForTimeout(600);
 
   // ── Pause / resume ─────────────────────────────────────────────────────────
@@ -455,11 +541,11 @@ try {
     await shot('01-overview.png');
 
     // Same scene, uniform grid, for the mode comparison.
-    await page.selectOption('#gridModeSelect', 'uniform');
+    await page.selectOption('#fieldModeSelect', 'uniform');
     await page.waitForTimeout(900);
     await shot('03-uniform-field.png');
 
-    await page.selectOption('#gridModeSelect', 'adaptive');
+    await page.selectOption('#fieldModeSelect', 'adaptive');
     await page.waitForTimeout(900);
 
     // Close in on the primary so the four density zones are legible. Zoom is
@@ -506,6 +592,22 @@ try {
     await page.selectOption('#presetSelect', 'figure-eight');
     await page.waitForTimeout(48000);
     await shot('06-figure-eight.png');
+
+    // Equipotentials on the Lagrange scene: the contour that closes around both
+    // primaries, and the saddle between them, are the structure an arrow grid
+    // can only hint at.
+    await page.selectOption('#presetSelect', 'lagrange');
+    await page.selectOption('#fieldModeSelect', 'contours');
+    await page.waitForTimeout(3000);
+    await shot('07-equipotentials.png');
+
+    // Streamlines on the same scene, for the contrast: direction rather than
+    // strength, and continuous rather than sampled.
+    await page.selectOption('#fieldModeSelect', 'streamlines');
+    await page.waitForTimeout(2500);
+    await shot('08-streamlines.png');
+
+    await page.selectOption('#fieldModeSelect', 'gradient');
   }
 
   // ── Preset scenes ──────────────────────────────────────────────────────────

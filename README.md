@@ -43,10 +43,14 @@ inferred from how things move.
 - **Scenes travel in a link.** **Copy Link** writes the live configuration —
   every body where it actually is, plus the camera and the physics settings —
   into the URL fragment, and opening that URL restores it.
-- **Two field sampling modes.** *Adaptive* concentrates samples near bodies,
-  where the field has structure, using four density zones and deduplicating
-  where zones overlap. *Uniform* lays a regular lattice across the view, which
-  reads the overall topology better.
+- **Five ways to draw the field.** Three arrow modes — *gradient* (the default,
+  which subdivides only where the field changes), *adaptive* (four density zones
+  per body) and *uniform* (a regular lattice) — plus **equipotential contours**,
+  which show the saddle between two bodies and the curve that closes around
+  both, and **streamlines**, which follow the flow instead of sampling it.
+- **A legend that says what the colours are worth.** Arrow length and hue are
+  normalized against the range present in each frame, so the legend prints that
+  range — strong and weak, in force per unit mass — and updates it every frame.
 - **Per-body vectors** — net gravitational force (orange) and velocity (cyan),
   drawn on each body.
 - **Camera** — wheel zoom about the cursor (10%–500%) and drag-to-pan. The field
@@ -61,6 +65,11 @@ inferred from how things move.
 | **Adaptive** — samples cluster where the field changes fastest | **Uniform** — even lattice, better for reading overall structure |
 | ![Dragging to aim a new body](screenshots/04-drag-to-launch.png) | ![Force and velocity arrows on two satellites](screenshots/05-particle-vectors.png) |
 | **Drag to launch** — the drag vector sets initial velocity | **Per-body vectors** — orange force, cyan velocity |
+
+| | |
+|---|---|
+| ![Equipotential contours around a two-body system](screenshots/07-equipotentials.png) | ![Streamlines converging on each body](screenshots/08-streamlines.png) |
+| **Equipotentials** — the level sets of the potential, pinching around the second body | **Streamlines** — the flow itself, evenly spaced |
 
 ![The figure-eight three-body choreography, its full period drawn as a trail](screenshots/06-figure-eight.png)
 
@@ -85,7 +94,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
-the *Grid Mode* dropdown switches sampling mode. Bodies you add yourself inherit
+the *Field* dropdown switches between the five ways of drawing it. Bodies you add yourself inherit
 the loaded scene's trail length, so they leave the same length of trail as the
 ones that were already there.
 
@@ -106,6 +115,8 @@ main.ts             p5 sketch: input, UI wiring, frame loop
   ├── collisions        merge / bounce / pass through, at contact distance
   ├── quadtree          Barnes-Hut: forces, field, contacts, step size
   ├── serialization     scenes as text, for the URL fragment
+  ├── contours          marching squares over any scalar field
+  ├── streamlines       evenly spaced curves through any vector field
   └── Renderer        all canvas drawing
         └── Vector2D     immutable 2D vector maths
 ```
@@ -134,6 +145,13 @@ future is refused rather than guessed at, and every number, setting and body
 count is validated before any of it is applied. A link that cannot be read says
 what was wrong with it rather than quietly showing the default scene, which
 would look exactly like the link having worked.
+
+**The contour and streamline tracers know nothing about gravity.** Both take a
+function — a scalar at a point, or a vector at a point — and return geometry.
+That is what makes them testable against fields whose answers are known in
+closed form: a cone's level sets are circles of a radius you can write down, and
+a rotating field's streamlines are circles about the origin. Neither would be
+checkable by eye on a gravitational potential.
 
 **One tree, four questions.** The quadtree in
 [`src/quadtree.ts`](src/quadtree.ts) is built once per force evaluation and then
@@ -186,7 +204,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 178 unit tests, headless, ~13s
+npm test            # 209 unit tests, headless, ~16s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -205,7 +223,7 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 66 properties, including that the background is the intended navy, that
+asserts 71 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -213,8 +231,9 @@ dropdown loads a live configuration, that switching integration scheme
 mid-flight keeps the simulation running, that the particle list notices a body
 that merged away without anyone clicking anything, that a three-hundred-body
 scene loads and animates on the tree, that a shared link reopens the scene it
-was made from, and that the two left-hand panels stay clear of each other in a
-short window. Every one of those corresponds to a defect that had shipped.
+was made from, that each way of drawing the field produces its own picture, and
+that the two left-hand panels stay clear of each other in a short window. Every
+one of those corresponds to a defect that had shipped.
 
 Both run in CI, on Linux and Windows.
 
@@ -247,9 +266,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   sub-step can still pass through. Adaptive sub-stepping is what keeps that
   rare.
 - **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
-  normalized logarithmically against the range present in the current frame.
-  They compare bodies within a frame; they are not an absolute scale, and there
-  is no scale bar.
+  normalized logarithmically against the range present in the current frame. The
+  legend now prints that range, so the picture can be read in absolute terms —
+  but the lengths themselves still cannot be compared between frames, and there
+  is no ruler on the canvas.
 - **Nothing is saved automatically.** A scene travels in a link, but only if you
   press Copy Link first; a plain refresh still loses it.
 - **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
@@ -265,10 +285,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers field readability work
-(scale bar, equipotential contours, streamlines), contact physics beyond merging
-(rotation, swept detection), and the costs that are still superlinear — plus
-what is deliberately deferred, and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) covers contact physics beyond
+merging (rotation, swept detection), the costs that are still superlinear, and
+checking the simulation against real ephemeris data — plus what is deliberately
+deferred, and why.
 
 ## Licence
 

@@ -172,31 +172,53 @@ was wrong with it instead of quietly showing the default scene.
   status line says the scene came from a link, which covers it, but the honest
   fix is an explicit "(from link)" entry.
 
-## M5 — Making the field readable, and affordable
+## M5 — Making the field readable, and affordable — **done**
 
-The vector field draws direction and relative strength. It does not yet convey:
+The field drew direction and relative strength and nothing else. It now draws
+five ways, chosen from one dropdown, and says what its colours are worth.
 
-- **Absolute magnitude** — *small*. Arrow length is normalized against the range
-  present in the current frame, so the picture is self-consistent but has no
-  scale bar. A legend keyed to actual force values would fix it, and it is the
-  cheapest item here by some distance.
-- **Equipotential contours** — *large*. These show orbital structure — Lagrange
-  points, the Hill sphere — far better than an arrow grid does, and would make
-  the Lagrange preset in M4 worth watching. Marching squares over a scalar field
-  the quadtree can already evaluate anywhere.
-- **Streamlines** — *medium*, for a continuous read of the field instead of
-  discrete arrows.
+- ~~**Absolute magnitude.**~~ **Done.** The legend now carries the two ends of
+  the range actually on screen — `Strong 5.7e1 … Weak 3.5` — recomputed every
+  frame, because arrow length and hue are normalized against the frame and
+  without the numbers the picture has no absolute reading at all. In streamline
+  mode, where there is no magnitude to report, the colour ramp is hidden rather
+  than left describing nothing.
+- ~~**Equipotential contours.**~~ **Done.** Marching squares over the potential,
+  in [`src/contours.ts`](src/contours.ts), with levels spaced geometrically
+  because potential spans orders of magnitude across one view. The ambiguous
+  cases are resolved by the cell average, which is what gets the saddle between
+  two bodies right — and the saddle is the whole reason to draw contours.
+- ~~**Streamlines.**~~ **Done.** Evenly spaced by the Jobard–Lefer method in
+  [`src/streamlines.ts`](src/streamlines.ts), reusing the `OccupancyGrid` the
+  arrow sampler already had. Lines end where the field reverses, which is what
+  a body is: without that they oscillate across the singularity and draw a
+  visible zigzag.
+- ~~**A sample budget that knows about the bodies.**~~ **Done**, as the
+  `gradient` mode, now the default. It subdivides a cell only while its reading
+  disagrees with its parent's, so the arrows follow the field's structure rather
+  than a fixed pattern of rings per body. Measured: a third of the samples for a
+  small scene and about a quarter of the time, and it still reaches every body.
 
-And one inherited from M3, which belongs here because it is a sampling policy
-rather than a performance trick:
+Both new modules know nothing about gravity — they take a function and return
+geometry — which is what let them be tested against fields whose contours and
+flow are known in closed form: a cone's level sets are circles of a radius you
+can write down, a rotating field's streamlines are circles about the origin.
 
-- **A sample budget that knows about the bodies** — *medium*. The field samples
-  up to 12,000 points regardless of how many bodies there are, so it costs tens
-  of milliseconds even in a small scene at full range, and the Galaxy preset
-  switches it off entirely. The adaptive sampler's four fixed zones are a crude
-  proxy for "sample where the field has structure"; sampling on the field's
-  local gradient instead would be better looking *and* cheaper, and would let
-  the cap fall. Numbers in [`SCALING.md`](SCALING.md).
+**What it cost to get right:** refinement driven only by how much a cell
+disagrees with its parent is blind to structure smaller than the cell it starts
+from. Measured on the Lagrange scene, both trojans got *no arrows at all* — a
+120-unit cell holding a mass-5 body sees a field dominated by the mass-5000 body
+nearby, finds nothing to disagree with, and never looks closer. Cells near a
+body now refine regardless, to the same fine spacing the zone-based mode used.
+
+**Still open**, and small:
+
+- **The contour mode is the expensive one at scale** — 25.8 ms at 300 bodies,
+  against 13.8 for streamlines — because every grid corner is a tree query and
+  the grid does not thin out. It is the one mode whose cost is set entirely by
+  its own resolution.
+- **Nothing labels a contour with its value.** The legend gives the range; an
+  individual line does not say which level it is.
 
 ## M6 — Contact physics beyond merging
 

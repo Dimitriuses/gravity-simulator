@@ -1,6 +1,9 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
 import { DEFAULT_THETA, QuadTree } from './quadtree';
+import { ContourLine, traceContours } from './contours';
+import { Streamline, defaultStreamlineOptions, traceStreamlines } from './streamlines';
+import { gravitationalPotential } from './forces';
 
 /**
  * Represents a single vector sample point in the field
@@ -22,8 +25,34 @@ export interface ViewBounds {
   maxY: number;
 }
 
+/** Is this body within `range` of the square cell? */
+function nearCell(
+  particle: Particle,
+  cell: { x: number; y: number; size: number },
+  range: number
+): boolean {
+  const dx = Math.max(cell.x - particle.position.x, particle.position.x - (cell.x + cell.size), 0);
+  const dy = Math.max(cell.y - particle.position.y, particle.position.y - (cell.y + cell.size), 0);
+  return dx * dx + dy * dy <= range * range;
+}
+
 /** Forces below this are not worth an arrow. */
 const MIN_FORCE = 0.001;
+
+/**
+ * How much a cell has to disagree with its parent before it is worth splitting.
+ *
+ * A quarter is a picture that follows the structure closely without spending
+ * the whole budget on the first body it meets; lower and the count runs to the
+ * cap near any mass, higher and the field goes blocky where it curves.
+ */
+const GRADIENT_SPLIT_THRESHOLD = 0.25;
+
+/** Spacing close to a body, as a fraction of the base grid. */
+const GRADIENT_FINE_FRACTION = 0.5;
+
+/** How close to a body counts as close, as a fraction of the influence range. */
+const GRADIENT_CLOSE_FRACTION = 0.15;
 
 /**
  * Upper bound on samples per frame. Reached only by zooming far out in uniform
@@ -84,18 +113,43 @@ export class OccupancyGrid {
 }
 
 /**
- * Gravitational field sampled on a grid, in one of two modes.
+ * How the field is drawn.
  *
- * `uniform` walks a regular lattice across the visible region. `adaptive`
- * instead walks four concentric rings around each particle, spacing samples
- * more finely close in — which is where the field actually has structure —
- * and deduplicates where rings from different particles overlap.
+ * The first three are arrow grids differing only in where they put the arrows;
+ * the last two draw something else entirely and are described in
+ * `contours.ts` and `streamlines.ts`.
+ */
+export type FieldMode = 'adaptive' | 'uniform' | 'gradient' | 'contours' | 'streamlines';
+
+/** Labels for the UI, in the order they should appear. */
+export const FIELD_MODE_LABELS: ReadonlyArray<{ id: FieldMode; label: string }> = [
+  { id: 'gradient', label: 'Arrows (where it changes)' },
+  { id: 'adaptive', label: 'Arrows (dense near bodies)' },
+  { id: 'uniform', label: 'Arrows (regular grid)' },
+  { id: 'contours', label: 'Equipotential contours' },
+  { id: 'streamlines', label: 'Streamlines' },
+];
+
+/**
+ * Gravitational field, drawn one of five ways.
+ *
+ * `uniform` walks a regular lattice across the visible region. `adaptive` walks
+ * four concentric rings around each particle, spacing samples more finely close
+ * in and deduplicating where rings overlap. `gradient` asks the field itself
+ * where it needs looking at, by subdividing a cell only when its value differs
+ * from its parent's — which is both a better picture and a much cheaper one,
+ * because the sample count follows the structure rather than the body count.
+ *
+ * `contours` and `streamlines` are not sampling modes at all; they hand the
+ * work to modules that know nothing about gravity and take a field function.
  */
 export class VectorField {
   samples: VectorSample[] = [];
+  contours: ContourLine[] = [];
+  streamlines: Streamline[] = [];
   maxInfluenceRadius: number = 300; // Range over which vectors are drawn (user-adjustable)
   baseGridSize: number = 30; // Nominal sample spacing
-  gridMode: 'uniform' | 'adaptive' = 'adaptive';
+  fieldMode: FieldMode = 'gradient';
 
   /**
    * Index over the accepted samples, used by adaptive mode's duplicate test.
@@ -133,17 +187,158 @@ export class VectorField {
     theta: number = DEFAULT_THETA
   ): void {
     this.samples = [];
+    this.contours = [];
+    this.streamlines = [];
     this.occupancy.clear();
     this.tree = tree;
     this.theta = theta;
 
     if (particles.length === 0) return;
 
-    if (this.gridMode === 'uniform') {
-      this.generateUniformGrid(particles, G, view);
-    } else {
-      this.generateAdaptiveGrid(particles, G, view);
+    switch (this.fieldMode) {
+      case 'uniform':
+        this.generateUniformGrid(particles, G, view);
+        break;
+      case 'adaptive':
+        this.generateAdaptiveGrid(particles, G, view);
+        break;
+      case 'gradient':
+        this.generateGradientGrid(particles, G, view);
+        break;
+      case 'contours':
+        this.contours = traceContours(
+          (x, y) => this.potentialAt(new Vector2D(x, y), particles, G),
+          view
+        );
+        break;
+      case 'streamlines':
+        this.streamlines = traceStreamlines(
+          (x, y) => this.calculateForceAt(new Vector2D(x, y), particles, G),
+          view,
+          defaultStreamlineOptions(view)
+        );
+        break;
     }
+  }
+
+  /**
+   * Sample where the field changes, not where the bodies are.
+   *
+   * Start with a coarse lattice and subdivide a cell only when its own reading
+   * differs enough from its parent's — which is a direct measure of how much
+   * the field is doing there. Smooth regions keep one arrow; the steep ground
+   * near a body, or the saddle between two, gets as many as the budget allows.
+   *
+   * The point of it is that **the sample count follows the field's structure
+   * rather than the number of bodies**. The zone-based mode asks for four rings
+   * around every particle, so three hundred bodies ask for thousands of samples
+   * and get truncated at the cap; this asks the same question of a two-body
+   * scene and a three-hundred-body one, and answers it with a similar number of
+   * arrows.
+   */
+  private generateGradientGrid(particles: Particle[], G: number, view: ViewBounds): void {
+    // Anchored to the world, like every other lattice here, so arrows stay put
+    // while the camera pans.
+    const coarse = this.baseGridSize * 4;
+    const finest = this.baseGridSize;
+    // Matching the zone-based mode's innermost spacing, so the picture close to
+    // a body is as dense as it has always been.
+    const fine = this.baseGridSize * GRADIENT_FINE_FRACTION;
+    const startX = Math.floor(view.minX / coarse) * coarse;
+    const startY = Math.floor(view.minY / coarse) * coarse;
+
+    interface Cell {
+      x: number;
+      y: number;
+      size: number;
+      parentMagnitude: number;
+      /** Bodies inside this cell, carried down as it splits. */
+      occupants: Particle[];
+    }
+
+    const queue: Cell[] = [];
+    for (let x = startX; x <= view.maxX; x += coarse) {
+      for (let y = startY; y <= view.maxY; y += coarse) {
+        queue.push({ x, y, size: coarse, parentMagnitude: -1, occupants: [] });
+      }
+    }
+
+    // Which bodies are near each coarse cell, so a cell knows whether it is in
+    // interesting territory without searching. Handing the list down as cells
+    // split keeps this to one pass over the bodies rather than one per cell.
+    //
+    // "Near" is the same distance the zone-based mode calls its innermost zone,
+    // so the two agree about where the field deserves the closest look.
+    const closeRange = this.maxInfluenceRadius * GRADIENT_CLOSE_FRACTION;
+    for (const cell of queue) {
+      cell.occupants = particles.filter((particle) => nearCell(particle, cell, closeRange));
+    }
+
+    while (queue.length > 0 && this.samples.length < MAX_SAMPLES) {
+      const cell = queue.pop() as Cell;
+
+      const centre = new Vector2D(cell.x + cell.size / 2, cell.y + cell.size / 2);
+      const force = this.calculateForceAt(centre, particles, G);
+      const magnitude = force.magnitude();
+
+      if (magnitude <= MIN_FORCE && cell.occupants.length === 0) continue;
+
+      // How much this cell disagrees with the one it came from. The first
+      // level has nothing to compare against and always splits, which is what
+      // gets the lattice down to a useful resolution before it starts judging.
+      const change =
+        cell.parentMagnitude < 0
+          ? Infinity
+          : Math.abs(magnitude - cell.parentMagnitude) / Math.max(magnitude, cell.parentMagnitude);
+
+      const roomToSplit = this.samples.length + queue.length + 4 <= MAX_SAMPLES;
+
+      // A cell near a body splits until it reaches the *fine* limit, whatever
+      // the readings say, and cells elsewhere split only while they disagree
+      // with their parent.
+      //
+      // Refinement driven by disagreement alone is blind to structure smaller
+      // than the cell it starts from: a 120-unit cell near a mass-5 body sees a
+      // field dominated by whatever heavy thing is nearby, finds nothing to
+      // disagree with, and never looks closer. Measured on the Lagrange scene,
+      // both trojans got no arrows at all.
+      const nearBody = cell.occupants.length > 0;
+      const limit = nearBody ? fine : finest;
+
+      if (cell.size > limit && (nearBody || change > GRADIENT_SPLIT_THRESHOLD) && roomToSplit) {
+        const half = cell.size / 2;
+
+        for (const [dx, dy] of [
+          [0, 0],
+          [half, 0],
+          [0, half],
+          [half, half],
+        ]) {
+          const childX = cell.x + dx;
+          const childY = cell.y + dy;
+
+          queue.push({
+            x: childX,
+            y: childY,
+            size: half,
+            parentMagnitude: magnitude,
+            occupants: cell.occupants.filter((particle) =>
+              nearCell(particle, { x: childX, y: childY, size: half }, closeRange)
+            ),
+          });
+        }
+        continue;
+      }
+
+      if (magnitude > MIN_FORCE) this.samples.push({ position: centre, force });
+    }
+  }
+
+  /** Potential at a point, through the tree when there is one. */
+  private potentialAt(point: Vector2D, particles: Particle[], G: number): number {
+    return this.tree
+      ? this.tree.potentialAt(point.x, point.y, G, this.theta)
+      : gravitationalPotential(point, particles, G);
   }
 
   /**
@@ -306,5 +501,15 @@ export class VectorField {
    */
   getSamples(): VectorSample[] {
     return this.samples;
+  }
+
+  /** Equipotential lines, when the mode draws them. */
+  getContours(): ContourLine[] {
+    return this.contours;
+  }
+
+  /** Traced streamlines, when the mode draws them. */
+  getStreamlines(): Streamline[] {
+    return this.streamlines;
   }
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { VectorField, MAX_SAMPLES, type ViewBounds } from '../src/VectorField';
 import { Particle } from '../src/Particle';
+import { SIMULATION_G } from '../src/PhysicsEngine';
 
 const VIEW: ViewBounds = { minX: -640, minY: -400, maxX: 640, maxY: 400 };
 
@@ -26,10 +27,10 @@ describe('VectorField', () => {
     expect(field.getSamples().length).toBe(first);
   });
 
-  describe.each(['adaptive', 'uniform'] as const)('%s mode', (mode) => {
+  describe.each(['adaptive', 'uniform', 'gradient'] as const)('%s mode', (mode) => {
     it('samples only inside the visible region', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       field.update([new Particle(0, 0, 500)], 1, VIEW);
 
       const samples = field.getSamples();
@@ -50,7 +51,7 @@ describe('VectorField', () => {
      */
     it('follows the camera to a distant region', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       const farAway = [new Particle(10_000, 10_000, 500)];
 
       field.update(farAway, 1, VIEW);
@@ -62,7 +63,7 @@ describe('VectorField', () => {
 
     it('points its arrows towards the attracting mass', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       field.update([new Particle(0, 0, 500)], 1, VIEW);
 
       for (const s of field.getSamples()) {
@@ -76,7 +77,7 @@ describe('VectorField', () => {
 
     it('never emits a non-finite force', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       // A body sitting exactly on a lattice point is the divide-by-zero case.
       field.update([new Particle(0, 0, 500), new Particle(30, 60, 500)], 1, VIEW);
 
@@ -89,7 +90,7 @@ describe('VectorField', () => {
 
     it('stays within the sample budget when zoomed far out', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       field.maxInfluenceRadius = 500;
 
       // The minimum zoom of 0.1 over a 1280x800 canvas: a 12800x8000 world
@@ -102,7 +103,7 @@ describe('VectorField', () => {
 
     it('respects the influence radius', () => {
       const field = new VectorField(30);
-      field.gridMode = mode;
+      field.fieldMode = mode;
       field.maxInfluenceRadius = 150;
       field.update([new Particle(0, 0, 500)], 1, VIEW);
 
@@ -115,7 +116,7 @@ describe('VectorField', () => {
   describe('adaptive mode', () => {
     it('samples more densely near the mass than far from it', () => {
       const field = new VectorField(30);
-      field.gridMode = 'adaptive';
+      field.fieldMode = 'adaptive';
       field.maxInfluenceRadius = 300;
       field.update([new Particle(0, 0, 500)], 1, VIEW);
 
@@ -134,7 +135,7 @@ describe('VectorField', () => {
 
     it('does not stack duplicate samples where two particles overlap', () => {
       const field = new VectorField(30);
-      field.gridMode = 'adaptive';
+      field.fieldMode = 'adaptive';
       field.maxInfluenceRadius = 300;
 
       // 100px apart, so their inner zones overlap heavily.
@@ -152,7 +153,7 @@ describe('VectorField', () => {
      */
     it('anchors its lattice to the world, not to the particle', () => {
       const field = new VectorField(30);
-      field.gridMode = 'adaptive';
+      field.fieldMode = 'adaptive';
 
       field.update([new Particle(0, 0, 500)], 1, VIEW);
       const before = new Set(field.getSamples().map((s) => `${s.position.x},${s.position.y}`));
@@ -170,7 +171,7 @@ describe('VectorField', () => {
   describe('uniform mode', () => {
     it('lays samples on a regular lattice', () => {
       const field = new VectorField(30);
-      field.gridMode = 'uniform';
+      field.fieldMode = 'uniform';
       field.maxInfluenceRadius = 500;
       field.update([new Particle(0, 0, 2000)], 1, VIEW);
 
@@ -182,7 +183,7 @@ describe('VectorField', () => {
 
     it('keeps the lattice fixed in world space while the camera pans', () => {
       const field = new VectorField(30);
-      field.gridMode = 'uniform';
+      field.fieldMode = 'uniform';
       field.maxInfluenceRadius = 500;
 
       const particles = [new Particle(0, 0, 2000)];
@@ -203,7 +204,7 @@ describe('VectorField', () => {
 
     it('cancels the pull of two equal masses along their perpendicular bisector', () => {
       const field = new VectorField(30);
-      field.gridMode = 'uniform';
+      field.fieldMode = 'uniform';
       field.maxInfluenceRadius = 500;
       field.update(twoEqualMasses(), 1, VIEW);
 
@@ -217,7 +218,7 @@ describe('VectorField', () => {
 
     it('emits no arrow at a null point, where the field cancels exactly', () => {
       const field = new VectorField(30);
-      field.gridMode = 'uniform';
+      field.fieldMode = 'uniform';
       field.maxInfluenceRadius = 500;
       field.update(twoEqualMasses(), 1, VIEW);
 
@@ -234,5 +235,104 @@ describe('VectorField', () => {
       expect(right).toBeDefined();
       expect(Math.sign(left!.force.x)).toBe(-Math.sign(right!.force.x));
     });
+  });
+});
+
+describe('gradient mode', () => {
+  /**
+   * The mode's whole claim: put samples where the field has structure rather
+   * than where the bodies happen to be, and so spend fewer of them.
+   */
+  const view: ViewBounds = { minX: -600, minY: -400, maxX: 600, maxY: 400 };
+
+  function fieldWith(mode: 'gradient' | 'adaptive', particles: Particle[]): VectorField {
+    const field = new VectorField(30);
+    field.fieldMode = mode;
+    field.maxInfluenceRadius = 150;
+    field.update(particles, SIMULATION_G, view);
+    return field;
+  }
+
+  it('reaches every body, including one too small to bend the field around it', () => {
+    // The failure this exists for. Refinement driven only by how much a cell
+    // disagrees with its parent never looks closer at a mass-5 body sitting in
+    // a mass-5000 body's field: the coarse cell sees nothing worth splitting
+    // for. Measured before the fix, both small bodies got zero arrows.
+    const particles = [
+      new Particle(-300, 0, 5000),
+      new Particle(300, 0, 5),
+      new Particle(0, 250, 5),
+    ];
+
+    const samples = fieldWith('gradient', particles).getSamples();
+
+    for (const particle of particles) {
+      const near = samples.filter(
+        (sample) => sample.position.sub(particle.position).magnitude() < 60
+      );
+      expect(near.length, `body of mass ${particle.mass}`).toBeGreaterThan(10);
+    }
+  });
+
+  it('spends fewer samples than the zone-based mode for the same scene', () => {
+    const particles = [
+      new Particle(-300, 0, 5000),
+      new Particle(300, 0, 100),
+      new Particle(0, 250, 5),
+    ];
+
+    const gradient = fieldWith('gradient', particles).getSamples().length;
+    const adaptive = fieldWith('adaptive', particles).getSamples().length;
+
+    expect(gradient).toBeLessThan(adaptive);
+  });
+
+  it('puts more samples where the field bends than where it is flat', () => {
+    const particles = [new Particle(0, 0, 5000)];
+    const samples = fieldWith('gradient', particles).getSamples();
+
+    const close = samples.filter((s) => s.position.magnitude() < 60).length;
+    const far = samples.filter(
+      (s) => s.position.magnitude() > 90 && s.position.magnitude() < 150
+    ).length;
+
+    // The near ring is a quarter the area of the far one and should still hold
+    // its own on count, which only happens if spacing follows the structure.
+    expect(close).toBeGreaterThan(far / 2);
+  });
+
+  it('anchors its lattice to the world, not to the viewport', () => {
+    // The invariant every sampler here shares: anchoring to the view makes
+    // every arrow crawl across the screen as the camera pans.
+    const particles = [new Particle(0, 0, 5000)];
+
+    const still = fieldWith('gradient', particles).getSamples();
+    const field = new VectorField(30);
+    field.fieldMode = 'gradient';
+    field.maxInfluenceRadius = 150;
+    field.update(particles, SIMULATION_G, {
+      minX: view.minX + 120,
+      maxX: view.maxX + 120,
+      minY: view.minY,
+      maxY: view.maxY,
+    });
+
+    // Panned by exactly one coarse cell, every sample still in view should sit
+    // where it sat before.
+    const before = new Set(still.map((s) => `${s.position.x.toFixed(4)},${s.position.y.toFixed(4)}`));
+    const shared = field
+      .getSamples()
+      .filter((s) => before.has(`${s.position.x.toFixed(4)},${s.position.y.toFixed(4)}`));
+
+    expect(shared.length).toBeGreaterThan(field.getSamples().length * 0.5);
+  });
+
+  it('stays within the sample budget when a scene is crowded', () => {
+    const particles = Array.from(
+      { length: 200 },
+      (_, i) => new Particle((i % 20) * 60 - 600, Math.floor(i / 20) * 80 - 400, 200)
+    );
+
+    expect(fieldWith('gradient', particles).getSamples().length).toBeLessThanOrEqual(MAX_SAMPLES);
   });
 });

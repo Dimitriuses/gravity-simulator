@@ -95,6 +95,36 @@ helps most, because the sample count does not fall as bodies are added.
 | 1024 | 289.9 ms | 75.5 ms | 3.84x | 12000 |
 | 2048 | 560.5 ms | 117.4 ms | 4.78x | 12000 |
 
+## What each field mode costs
+
+The same scene drawn five ways, over the whole visible region. `samples`
+is what the mode asked the field for: arrows for the three arrow modes,
+grid corners for contours, integration steps for streamlines.
+
+The point of the gradient mode is the last column. The zone-based mode
+asks for four rings of samples per *body*, so its count runs to the cap and
+gets truncated; the gradient mode asks the field where it changes. Its
+count still grows with the body count — more bodies really is more
+structure — but far more slowly, and it never has to be truncated.
+
+| bodies | mode | time | samples |
+|---:|---|---:|---:|
+| 3 | gradient | 0.28 ms | 417 |
+| 3 | adaptive | 2.11 ms | 1166 |
+| 3 | uniform | 1.75 ms | 467 |
+| 3 | contours | 21.3 ms | 1436 |
+| 3 | streamlines | 1.73 ms | 286 |
+| 64 | gradient | 8.62 ms | 3203 |
+| 64 | adaptive | 39.9 ms | 9828 |
+| 64 | uniform | 10.8 ms | 2468 |
+| 64 | contours | 7.70 ms | 1435 |
+| 64 | streamlines | 10.5 ms | 1844 |
+| 300 | gradient | 40.1 ms | 11260 |
+| 300 | adaptive | 43.9 ms | 12000 |
+| 300 | uniform | 14.2 ms | 6167 |
+| 300 | contours | 25.8 ms | 1439 |
+| 300 | streamlines | 13.8 ms | 2258 |
+
 ## Where the rest of a frame goes
 
 Forces are not the only thing that was quadratic. Contact detection tests
@@ -159,12 +189,13 @@ it, on the same scene — the Galaxy preset, measured in headless Chromium at
 
 Three things are worth knowing about the numbers above:
 
-**The field's cost is now sample-bound, not body-bound.** 12,000 samples cost
-tens of milliseconds however few bodies there are, because that is 12,000 tree
-queries. The sample cap was chosen when the field was the only thing on screen;
-a scene with hundreds of bodies wants far fewer arrows, not more, and the Galaxy
-preset turns the field off for that reason. The fix is a sampling policy rather
-than a faster query — roadmap M5.
+**The field's cost is sample-bound, not body-bound**, and the sampling policy is
+what decides it. The gradient mode (roadmap M5) is the answer to that: it asks
+the field where it changes instead of laying rings around every body, and spends
+a third of the samples on a small scene for a picture that still reaches every
+body. It does not repeal the problem — three hundred bodies really is more
+structure, and by then it too is at the cap — but it moves the wall a long way,
+and the Galaxy preset is the scene that still cannot afford any of them.
 
 **The step rule is the least improved.** Branch and bound cuts it by about 3.5x,
 not by an order of magnitude, because the bound is weak exactly when it matters:

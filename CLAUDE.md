@@ -43,13 +43,15 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── collisions     merge / bounce / pass through, resolved at contact
   ├── quadtree       Barnes-Hut: forces, field, contacts, step size
   ├── serialization  scenes as text, for saving and for the URL fragment
+  ├── contours       marching squares over any scalar field
+  ├── streamlines    evenly spaced curves through any vector field
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
 ```
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 178 tests run under Node in about thirteen
+plain TypeScript, which is why 209 tests run under Node in about sixteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -196,6 +198,39 @@ in the legend in `index.html`. If you change one, change both.
 
 `push()`/`pop()` save and restore colour mode, so a scoped switch is safe — but
 a bare `colorMode()` call leaks to every later draw call in the frame.
+
+### The contour and streamline tracers take a function, not a simulation
+
+Neither `contours.ts` nor `streamlines.ts` imports anything about gravity: one
+takes a scalar at a point, the other a vector at a point. Keep it that way — it
+is the only reason they can be tested at all. A cone's level sets are circles
+whose radius you can write down and a rotating field's streamlines are circles
+about the origin, so both tracers are checked against answers known in closed
+form. On a gravitational potential nobody can see the right answer by eye, and
+the tests would degrade into "it drew something".
+
+### Gradient refinement is blind to what is smaller than its first cell
+
+The `gradient` field mode subdivides a cell while its reading disagrees with its
+parent's. On its own that never finds structure smaller than the coarse cell it
+starts from: a 120-unit cell holding a mass-5 body sees a field dominated by the
+mass-5000 body nearby, finds nothing to disagree with, and stops. Measured on
+the Lagrange scene, both trojans got **no arrows at all**.
+
+Cells near a body therefore refine regardless of the readings, down to the same
+fine spacing the zone-based mode uses. If you touch the refinement rule, the
+test to keep is *"reaches every body, including one too small to bend the field
+around it"* — the count and the cost are the easy half.
+
+### A frame-relative picture needs its numbers printed
+
+Arrow length and hue are normalized against the range of magnitudes present in
+the current frame, which is what keeps them legible across the ~10⁶ span the
+sliders can produce, and what makes the same red mean something different from
+one frame to the next. `Renderer.fieldScale` publishes that range and the legend
+prints it. Modes that have no magnitude to report — streamlines — hide the
+colour ramp and clear its values rather than leaving last mode's numbers sitting
+in a hidden element waiting to be believed.
 
 ### The vector field is built for the camera's view, not for the canvas
 

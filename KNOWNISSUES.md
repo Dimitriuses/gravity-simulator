@@ -95,16 +95,22 @@ What the model does not include — roadmap M6 covers the first four:
   becomes one body the moment two of them touch. Bounce mode exists for that
   reason.
 
-## Arrow length is relative, not absolute
+## Arrow length is relative; the numbers beside it are not
 
-Both the field arrows and the per-particle force/velocity arrows map magnitude
-logarithmically onto a fixed length band, normalized against the range present
-in the *current frame*. This is what keeps them legible across the ~10⁶ range of
-forces the mass and distance sliders can produce.
+Both the field arrows and the per-particle force and velocity arrows map
+magnitude logarithmically onto a fixed length band, normalized against the range
+present in the *current* frame. That is what keeps them legible across the ~10⁶
+range of forces the mass and distance sliders can produce.
 
-The consequence: arrow length compares bodies against each other **within one
-frame**, and cannot be compared between frames or read as an absolute value.
-There is no scale bar. Roadmap M5.
+The consequence used to be that the picture had no absolute reading at all. The
+legend now prints the two ends of the range on screen — strong and weak, in
+force per unit mass — and updates them every frame (roadmap M5). What remains:
+
+- **Lengths are still frame-relative.** Two frames cannot be compared by eye,
+  only by the numbers beside them, and there is still no ruler on the canvas
+  itself.
+- **Individual contour lines are unlabelled.** The legend gives the range of
+  potentials drawn; no line says which level it is.
 
 ## Nothing is saved unless you ask for it
 

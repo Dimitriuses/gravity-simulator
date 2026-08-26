@@ -8,6 +8,7 @@ import { INTEGRATOR_LABELS, IntegratorName } from './integrators';
 import { COLLISION_MODE_LABELS, CollisionMode } from './collisions';
 import { FORCE_MODE_LABELS, ForceMode } from './PhysicsEngine';
 import { SavedScene, decodeScene, encodeScene } from './serialization';
+import { FIELD_MODE_LABELS, FieldMode } from './VectorField';
 
 /**
  * Sample the field slightly beyond the viewport so arrows do not pop in at the
@@ -83,7 +84,7 @@ const sketch = (p: p5) => {
   const arrowSizeValue = el('arrowSizeValue');
   const zoomValue = el('zoomValue');
   const resetCameraBtn = el('resetCameraBtn');
-  const gridModeSelect = el<HTMLSelectElement>('gridModeSelect');
+  const fieldModeSelect = el<HTMLSelectElement>('fieldModeSelect');
   const presetSelect = el<HTMLSelectElement>('presetSelect');
   const reloadPresetBtn = el('reloadPresetBtn');
   const integratorSelect = el<HTMLSelectElement>('integratorSelect');
@@ -92,6 +93,11 @@ const sketch = (p: p5) => {
   const forceModeSelect = el<HTMLSelectElement>('forceModeSelect');
   const shareBtn = el('shareBtn');
   const shareStatus = el('shareStatus');
+  const legendTitle = el('legendTitle');
+  const legendMin = el('legendMin');
+  const legendMax = el('legendMax');
+  const legendScale = el('legendScale');
+  const legendRamp = el('legendRamp');
   const subStepCount = el('subStepCount');
   const forceModeLabel = el('forceModeLabel');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
@@ -117,6 +123,7 @@ const sketch = (p: p5) => {
     // These dropdowns are the controls whose options come from TypeScript, so
     // they have to be filled in before anything reads their values.
     populatePresetOptions();
+    populateFieldModeOptions();
     populateIntegratorOptions();
     populateCollisionOptions();
     populateForceModeOptions();
@@ -149,6 +156,7 @@ const sketch = (p: p5) => {
     engine.updateField(view);
 
     updateSubStepDisplay();
+    updateLegend();
     // Merging removes bodies without anyone clicking anything, which the
     // particle list had never had to cope with: until collisions existed the
     // only way to lose a body was to press its delete button.
@@ -287,7 +295,7 @@ const sketch = (p: p5) => {
     renderer.arrowSizeMultiplier = parseFloat(arrowSizeSlider.value);
     arrowSizeValue.textContent = renderer.arrowSizeMultiplier.toFixed(1);
 
-    engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
+    engine.vectorField.fieldMode = fieldModeSelect.value as FieldMode;
     engine.integrator = integratorSelect.value as IntegratorName;
     engine.adaptiveStepping = adaptiveSteppingCheckbox.checked;
     engine.collisionMode = collisionSelect.value as CollisionMode;
@@ -342,8 +350,8 @@ const sketch = (p: p5) => {
       renderer.showTrails = showTrailsCheckbox.checked;
     });
 
-    gridModeSelect.addEventListener('change', () => {
-      engine.vectorField.gridMode = gridModeSelect.value as 'uniform' | 'adaptive';
+    fieldModeSelect.addEventListener('change', () => {
+      engine.vectorField.fieldMode = fieldModeSelect.value as FieldMode;
     });
 
     presetSelect.addEventListener('change', () => {
@@ -570,6 +578,20 @@ const sketch = (p: p5) => {
     integratorSelect.value = engine.integrator;
   }
 
+  /** Fill the field dropdown from `FIELD_MODE_LABELS`. */
+  function populateFieldModeOptions(): void {
+    fieldModeSelect.replaceChildren();
+
+    for (const mode of FIELD_MODE_LABELS) {
+      const option = document.createElement('option');
+      option.value = mode.id;
+      option.textContent = mode.label;
+      fieldModeSelect.append(option);
+    }
+
+    fieldModeSelect.value = engine.vectorField.fieldMode;
+  }
+
   /**
    * Fill the force dropdown from `FORCE_MODE_LABELS`, selecting the engine's
    * default.
@@ -717,6 +739,64 @@ const sketch = (p: p5) => {
    * cannot see why", and at the cap it is the honest signal that the encounter
    * is beyond what a frame can resolve.
    */
+  /**
+   * Say what the colours are worth, in the units the simulation actually uses.
+   *
+   * The field's arrows are normalized against the range present in the current
+   * frame — that is what keeps them legible across the ~10^6 span the sliders
+   * can produce — so the same red means something different from one frame to
+   * the next. Printing the two ends of the range is what turns a relative
+   * picture into a readable one.
+   */
+  function updateLegend(): void {
+    const mode = engine.vectorField.fieldMode;
+    const scale = renderer.fieldScale;
+
+    const title =
+      mode === 'contours' ? 'Equipotentials:' : mode === 'streamlines' ? 'Streamlines:' : 'Vector Field:';
+    if (legendTitle.textContent !== title) legendTitle.textContent = title;
+
+    if (mode === 'streamlines') {
+      // A streamline has a direction but no magnitude, so the colour ramp is
+      // not describing anything and is hidden rather than left to mislead.
+      legendRamp.style.display = 'none';
+      // Cleared as well as hidden: a hidden element still holding last mode's
+      // numbers is a stale reading waiting to be believed.
+      setLegendText(legendMin, '');
+      setLegendText(legendMax, '');
+      setLegendText(legendScale, 'direction of the field; strength not shown');
+      return;
+    }
+
+    legendRamp.style.display = '';
+
+    if (!scale) {
+      setLegendText(legendMin, '—');
+      setLegendText(legendMax, '—');
+      return;
+    }
+
+    setLegendText(legendMax, format(scale.max));
+    setLegendText(legendMin, format(scale.min));
+    setLegendText(
+      legendScale,
+      mode === 'contours' ? 'log scale, potential per unit mass' : 'log scale, force per unit mass'
+    );
+  }
+
+  function setLegendText(element: HTMLElement, text: string): void {
+    if (element.textContent !== text) element.textContent = text;
+  }
+
+  /** Two significant figures, which is all a legend has room to mean. */
+  function format(value: number): string {
+    if (!Number.isFinite(value) || value === 0) return '0';
+
+    const [mantissa, exponent] = value.toExponential(1).split('e');
+    const power = Number(exponent);
+    return power === 0 ? mantissa : `${mantissa}e${power}`;
+  }
+
   function updateSubStepDisplay(): void {
     const label = isPaused ? '—' : engine.lastSubSteps.toString();
     if (subStepCount.textContent !== label) subStepCount.textContent = label;

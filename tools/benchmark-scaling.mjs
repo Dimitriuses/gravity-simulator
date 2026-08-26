@@ -136,6 +136,41 @@ for (const count of COUNTS) {
 }
 
 line('');
+line('## What each field mode costs');
+line('');
+line('The same scene drawn five ways, over the whole visible region. `samples`');
+line('is what the mode asked the field for: arrows for the three arrow modes,');
+line('grid corners for contours, integration steps for streamlines.');
+line('');
+line('The point of the gradient mode is the last column. The zone-based mode');
+line('asks for four rings of samples per *body*, so its count runs to the cap and');
+line('gets truncated; the gradient mode asks the field where it changes. Its');
+line('count still grows with the body count — more bodies really is more');
+line('structure — but far more slowly, and it never has to be truncated.');
+line('');
+line('| bodies | mode | time | samples |');
+line('|---:|---|---:|---:|');
+
+for (const count of [3, 64, 300]) {
+  for (const mode of ['gradient', 'adaptive', 'uniform', 'contours', 'streamlines']) {
+    const engine = engineWith(count, 'auto');
+    engine.vectorField.fieldMode = mode;
+    engine.computeForces();
+
+    const elapsed = time(5, () => engine.updateField(VIEW));
+    const field = engine.vectorField;
+    const samples =
+      mode === 'contours'
+        ? field.getContours().reduce((sum, line) => sum + line.segments.length, 0)
+        : mode === 'streamlines'
+          ? field.getStreamlines().reduce((sum, line) => sum + line.length, 0)
+          : field.getSamples().length;
+
+    line(`| ${count} | ${mode} | ${ms(elapsed)} ms | ${samples} |`);
+  }
+}
+
+line('');
 line('## Where the rest of a frame goes');
 line('');
 line('Forces are not the only thing that was quadratic. Contact detection tests');

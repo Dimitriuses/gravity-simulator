@@ -25,6 +25,14 @@ const COLOR_VELOCITY_ARROW = [0, 255, 255] as const; // #00ffff
 const COLOR_TRAIL = [200, 200, 255] as const;
 
 /**
+ * Streamlines are drawn in one colour rather than on the strength ramp: their
+ * job is to show the shape of the flow, and colouring them by magnitude as well
+ * makes two variables compete for the same picture. Strength is what the arrow
+ * modes are for.
+ */
+const COLOR_STREAMLINE = [130, 190, 235] as const;
+
+/**
  * Number of alpha steps a trail fades through. Each band is one polyline, so
  * this is also the number of stroke-state changes per trail per frame — the
  * cost that used to scale with trail length.
@@ -85,6 +93,17 @@ export class Renderer {
    */
   zoom: number = 1;
 
+  /**
+   * The range of field magnitudes drawn in the last frame, and the levels the
+   * contours traced — whichever the mode produced.
+   *
+   * Arrow length and hue are both normalized against the range *present in the
+   * frame*, so without publishing the two ends of it the picture is
+   * self-consistent and unreadable in absolute terms: the legend can say which
+   * colour is strong, but not how strong. This is what lets it say the number.
+   */
+  fieldScale: { min: number; max: number } | null = null;
+
   constructor(p: p5, engine: PhysicsEngine) {
     this.p = p;
     this.engine = engine;
@@ -97,7 +116,7 @@ export class Renderer {
     this.p.background(...COLOR_BACKGROUND);
 
     if (this.showVectorField) {
-      this.drawVectorField();
+      this.drawField();
     }
 
     if (this.showTrails) {
@@ -118,6 +137,98 @@ export class Renderer {
    * the range present in this frame so the field stays legible whatever the
    * masses and distances are.
    */
+  /** Draw whichever picture of the field the current mode produced. */
+  private drawField(): void {
+    this.fieldScale = null;
+
+    const mode = this.engine.vectorField.fieldMode;
+    if (mode === 'contours') {
+      this.drawContours();
+      return;
+    }
+    if (mode === 'streamlines') {
+      this.drawStreamlines();
+      return;
+    }
+
+    this.drawVectorField();
+  }
+
+  /**
+   * Equipotential lines, coloured by depth on the same ramp the arrows use:
+   * red for the deep well, blue for the shallows.
+   *
+   * Drawn as one polyline pass per level rather than per segment, for the same
+   * reason the trails are banded — the stroke change is the cost.
+   */
+  private drawContours(): void {
+    const lines = this.engine.vectorField.getContours();
+    if (lines.length === 0) return;
+
+    // Levels come back deepest-first; the ends of that range are what the
+    // legend reports.
+    const levels = lines.map((line) => Math.abs(line.level));
+    this.fieldScale = { min: Math.min(...levels), max: Math.max(...levels) };
+
+    this.p.push();
+    this.p.colorMode(this.p.HSB, 360, 100, 100, 100);
+    this.p.noFill();
+    this.p.strokeWeight(1 / this.zoom);
+
+    const logMin = Math.log(this.fieldScale.min);
+    const logMax = Math.log(this.fieldScale.max);
+
+    for (const line of lines) {
+      const t =
+        logMax === logMin ? 0.5 : (Math.log(Math.abs(line.level)) - logMin) / (logMax - logMin);
+      // Same ramp as the arrows: blue is weak and far, red is deep and close.
+      this.p.stroke(240 - t * 240, 85, 95, 70);
+
+      for (const segment of line.segments) {
+        this.p.line(segment.from.x, segment.from.y, segment.to.x, segment.to.y);
+      }
+    }
+
+    this.p.pop();
+  }
+
+  /**
+   * Streamlines, as polylines with an arrowhead partway along so the direction
+   * of the flow is visible.
+   */
+  private drawStreamlines(): void {
+    const lines = this.engine.vectorField.getStreamlines();
+    if (lines.length === 0) return;
+
+    this.p.push();
+    this.p.noFill();
+    this.p.stroke(...COLOR_STREAMLINE);
+    this.p.strokeWeight(1 / this.zoom);
+
+    for (const line of lines) {
+      this.p.beginShape();
+      for (const point of line) this.p.vertex(point.x, point.y);
+      this.p.endShape();
+    }
+
+    // Arrowheads in a second pass: they are filled, and switching fill state
+    // per line would cost more than the heads do.
+    this.p.fill(...COLOR_STREAMLINE);
+    this.p.noStroke();
+
+    for (const line of lines) {
+      if (line.length < 4) continue;
+
+      const at = Math.floor(line.length / 2);
+      const direction = line[at].sub(line[at - 1]);
+      if (direction.magnitude() === 0) continue;
+
+      this.drawArrowhead(line[at].x, line[at].y, direction.normalize(), 5 / this.zoom);
+    }
+
+    this.p.pop();
+  }
+
   private drawVectorField(): void {
     const samples = this.engine.vectorField.getSamples();
     if (samples.length === 0) return;
@@ -133,6 +244,8 @@ export class Renderer {
       }
     }
     if (minMagnitude === Infinity) return;
+
+    this.fieldScale = { min: minMagnitude, max: maxMagnitude };
 
     // One push for the whole pass rather than one per arrow — with a few
     // thousand samples a frame, the per-arrow state save was pure overhead.

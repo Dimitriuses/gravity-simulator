@@ -34,6 +34,32 @@ export function gravitationalForce(
 }
 
 /**
+ * Gravitational potential at a point: the sum over every body of −G·m/r.
+ *
+ * Potential rather than force, because a contour needs a scalar: equipotential
+ * lines are the level sets of this, and they show orbital structure — Lagrange
+ * points, the Hill sphere — that an arrow grid only hints at.
+ *
+ * Softened the same way the field is, at the source body's own radius, so the
+ * value stays finite inside a body instead of diving to negative infinity and
+ * taking every contour level with it.
+ */
+export function gravitationalPotential(
+  point: Vector2D,
+  particles: Particle[],
+  G: number
+): number {
+  let potential = 0;
+
+  for (const particle of particles) {
+    const distance = Math.max(particle.position.sub(point).magnitude(), particle.radius);
+    potential -= (G * particle.mass) / distance;
+  }
+
+  return potential;
+}
+
+/**
  * Accelerations every particle would feel if the bodies sat at `positions`
  * instead of where they actually are.
  *
