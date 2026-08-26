@@ -161,6 +161,6 @@ what RK4 was actually doing at a well-resolved radius.
 
 Adaptive stepping is global: one pair in a tight encounter sub-steps the entire
 system, including bodies that did not need it. Per-body or block time-stepping
-would confine the cost to the bodies that earn it, and is the obvious next move
-if a scene ever has enough bodies for it to matter. See
-[`ROADMAP.md`](ROADMAP.md).
+would confine the cost to the bodies that earn it. It is a substantial change —
+bodies would sit at different times, so a force evaluation needs positions
+extrapolated to a common one — and it is tracked as roadmap M7.

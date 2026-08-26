@@ -34,11 +34,11 @@ inferred from how things move.
 - **Scales to hundreds of bodies** through a Barnes-Hut quadtree, which answers
   the net force on a body, the field at a sample point, which bodies are
   touching, and how finely the frame needs slicing — all from one tree.
-- **Five starting scenes** — a circular binary, a star with two planets, the
-  figure-eight three-body choreography, an eccentric comet and a hyperbolic
-  slingshot. Every velocity is derived from the orbit equation for the
-  simulator's own `G`, and each scene is run through the engine in the test
-  suite to prove it still orbits thousands of steps later.
+- **Six starting scenes** — a circular binary, a star with two planets, the
+  figure-eight three-body choreography, an eccentric comet, a hyperbolic
+  slingshot, and a 300-body galaxy. Every velocity is derived from the orbit
+  equation for the simulator's own `G`, and each scene is run through the engine
+  in the test suite to prove it still orbits thousands of steps later.
 - **Two field sampling modes.** *Adaptive* concentrates samples near bodies,
   where the field has structure, using four density zones and deduplicating
   where zones overlap. *Uniform* lays a regular lattice across the view, which

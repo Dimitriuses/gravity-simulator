@@ -4,7 +4,14 @@ Where this project is going, and what is deliberately not being done. Ordered by
 what would most change the thing's usefulness, not by what is easiest.
 
 Status is honest: items marked **blocked** have been attempted or investigated
-and the obstacle is named.
+and the obstacle is named. Open items carry a size — **small** is an afternoon,
+**medium** is a day or two, **large** is a milestone's worth of work on its own —
+because that is what decides whether something gets folded into a milestone or
+becomes one.
+
+A finished milestone below is a record of what was done, not a place to look for
+work. Anything a milestone left open was moved into a live milestone; the
+pointers say where.
 
 ---
 
@@ -39,11 +46,7 @@ Two things came out of doing it that were not in the plan:
   inside a mass-5000 primary. Corrected there, along with the floor it implies -
   no physical circular orbit can be resolved worse than about 25 steps per orbit.
 
-**Still open:** sub-stepping is global. One tight pair subdivides the step for
-every body in the scene, including bodies that did not need it. Per-body or
-block time-stepping is the next move, and only matters once scenes are large
-enough for the waste to show - which makes it a natural companion to M3 rather
-than a job on its own.
+Left open: sub-stepping is global. Now **M7**.
 
 ## M2 - Collisions and merging - **done**
 
@@ -72,16 +75,8 @@ adaptive step clamp and the renderer. Summing areas would have made a merged
 body a different size from every other body of the same mass, so the merged
 radius comes from the merged mass instead.
 
-**Still open**, and none of it urgent:
-
-- **Rotation.** Bodies carry no angular momentum, so an off-centre impact that
-  should impart spin only deflects. Adding it means angular state on every body
-  and friction at the contact point.
-- **Fragmentation**, the opposite of merging, and much harder to make look right.
-- **Swept contact detection.** Overlap is tested after each sub-step rather than
-  along the path between them; sub-stepping keeps tunnelling rare rather than
-  impossible. Numbers in [`KNOWNISSUES.md`](KNOWNISSUES.md).
-- **Restitution as a control**, rather than a constant.
+Left open: rotation, swept detection, fragmentation, restitution as a control.
+All now **M6**.
 
 ## M3 - Scale: Barnes-Hut - **done**
 
@@ -130,57 +125,158 @@ Two things surfaced that were not in the plan:
   every preset declare what it wants, those economies followed the user into
   whatever scene they loaded next.
 
-**Still open:** the field's cost is now sample-bound rather than body-bound
-(12,000 samples cost the same whatever the body count), and the step rule is the
-least improved of the four — a dual-tree traversal would prune far better than
-body-against-cell does. Both are described in [`SCALING.md`](SCALING.md).
+Left open: the field's sample budget is blind to body count (now **M5**), and
+the step rule and the drawing cost are the frame's remaining superlinear parts
+(now **M7**).
+
+---
 
 ## M4 — Save, load, and share
 
-Nothing the user builds survives a refresh.
+Nothing the user builds survives a refresh. This is the last big gap in what the
+demo can do, which is why it stays at the top.
 
-- ~~A small library of preset scenes.~~ **Done.** Five, in
+- ~~A small library of preset scenes.~~ **Done.** Six, in
   [`src/presets.ts`](src/presets.ts): a circular binary, a star with two
-  planets, the figure-eight choreography, an eccentric comet, and a hyperbolic
-  slingshot. They are data plus the orbit arithmetic that makes them orbit —
-  `v = sqrt(G·M/r)`, vis-viva, and the Chenciner–Montgomery initial conditions
-  rescaled to this engine's `G` — and `tests/presets.test.ts` runs each one
-  through the engine for thousands of steps to check it against its own
-  description. The scene dropdown is populated from that list, so adding a
-  scene is one entry in one array.
-- **Still wanted: serialization.** Positions, velocities, masses, camera and
-  render settings out to a string and back.
-- **Still wanted: the URL fragment.** This is what would make the demo
-  shareable — "here is the configuration I built" as a link. Preset ids are
-  already stable strings chosen with that in mind, so `#scene=figure-eight` is
-  the cheap half of it.
-- A Lagrange-point scene is the obvious sixth preset. It was left out because
-  L4/L5 stability needs a mass ratio above 24.96 and a long, quiet run to show
-  anything, and neither the fixed step (M1) nor a demo's attention span
-  flatters it.
+  planets, the figure-eight choreography, an eccentric comet, a hyperbolic
+  slingshot, and a 300-body galaxy. They are data plus the orbit arithmetic that
+  makes them orbit — `v = sqrt(G·M/r)`, vis-viva, and the Chenciner–Montgomery
+  initial conditions rescaled to this engine's `G` — and `tests/presets.test.ts`
+  runs each one through the engine to check it against its own description.
+- **Serialization** — *medium*. Positions, velocities, masses, camera and render
+  settings out to a string and back. The scene already has a clean data
+  representation in `PresetBody`, so the shape of it is decided; what is not is
+  how much of the UI state belongs in a saved scene, and the answer is probably
+  "everything a preset can set", since presets already carry zoom, trail length
+  and which overlays to draw.
+- **The URL fragment** — *small, once serialization exists*. This is what makes
+  the demo shareable: "here is the configuration I built" as a link. Preset ids
+  are already stable strings chosen with that in mind, so `#scene=figure-eight`
+  is the cheap half and works without the serializer.
+- **A Lagrange-point preset** — *small*. Left out of M2's preset work because
+  L4/L5 stability needs a mass ratio above 24.96 and a long quiet run to show
+  anything. Adaptive stepping (M1) removed half that objection; the other half
+  is that it needs the patience of a viewer who will not give it.
 
-Presets improved the demo's first thirty seconds more than anything else on this
-list, as expected. The serialization half is still worth doing before M3.
-
-## M5 — Making the field readable
+## M5 — Making the field readable, and affordable
 
 The vector field draws direction and relative strength. It does not yet convey:
 
-- **Absolute** magnitude. Arrow length is normalized against the range present
-  in the current frame, so the picture is self-consistent but has no scale bar.
-  A legend keyed to actual force values would fix it.
-- **Equipotential contours**, which show orbital structure — Lagrange points,
-  the Hill sphere — far better than an arrow grid does.
-- **Streamlines** rather than discrete arrows, for a continuous read of the
-  field.
+- **Absolute magnitude** — *small*. Arrow length is normalized against the range
+  present in the current frame, so the picture is self-consistent but has no
+  scale bar. A legend keyed to actual force values would fix it, and it is the
+  cheapest item here by some distance.
+- **Equipotential contours** — *large*. These show orbital structure — Lagrange
+  points, the Hill sphere — far better than an arrow grid does, and would make
+  the Lagrange preset in M4 worth watching. Marching squares over a scalar field
+  the quadtree can already evaluate anywhere.
+- **Streamlines** — *medium*, for a continuous read of the field instead of
+  discrete arrows.
 
-The adaptive sampler's four fixed zones are also a crude proxy for "sample where
-the field has structure". Sampling on the field's local gradient instead would
-be both better looking and cheaper.
+And one inherited from M3, which belongs here because it is a sampling policy
+rather than a performance trick:
 
-## M6 — Deliberately deferred
+- **A sample budget that knows about the bodies** — *medium*. The field samples
+  up to 12,000 points regardless of how many bodies there are, so it costs tens
+  of milliseconds even in a small scene at full range, and the Galaxy preset
+  switches it off entirely. The adaptive sampler's four fixed zones are a crude
+  proxy for "sample where the field has structure"; sampling on the field's
+  local gradient instead would be better looking *and* cheaper, and would let
+  the cap fall. Numbers in [`SCALING.md`](SCALING.md).
 
-Recorded so the omissions read as decisions rather than oversights.
+## M6 — Contact physics beyond merging
+
+M2 made contact resolve. It did not make it physical. Everything here was left
+open by that milestone, and it is grouped rather than scattered because the
+first three items all touch the same file and the same contact geometry.
+
+- **Restitution as a control** — *small*. It is a constant at 0.5 in
+  `collisions.ts`. A slider makes the difference between putty and rubber
+  visible, and it is the one item here that could ship on its own afternoon.
+- **Swept contact detection** — *medium*. Overlap is tested after each sub-step
+  rather than along the path between them, so a body crossing the whole contact
+  window inside one sub-step is never seen to touch. Adaptive stepping keeps
+  that rare — measured, a body needs about 160 units per frame to slip through —
+  but rare is not never, and turning sub-stepping off makes it easy to produce.
+- **Rotation** — *large*, and the reason this is a milestone rather than a
+  footnote. Bodies carry no angular momentum, so an off-centre impact that
+  should set something spinning only deflects it. Adding it means angular state
+  on every body, friction at the contact point, a moment of inertia that follows
+  from the mass-radius rule, and something visible in the renderer — otherwise
+  the whole thing is invisible and unverifiable.
+- **Fragmentation** — *large*, and **deferred within this milestone**. The
+  opposite of merging, and much harder to make look right: the fragments' number,
+  sizes and velocities are all free parameters, and conserving mass, momentum and
+  energy through a break-up while producing something that reads as a collision
+  rather than confetti is a design problem before it is a physics one.
+
+## M7 — The costs that are still superlinear
+
+M3 took the two obvious quadratic costs out of the frame. What it left behind is
+smaller, harder, and only worth doing if scenes get bigger than the Galaxy
+preset — which is why this sits below the two milestones that improve what the
+simulator *does*.
+
+- **A dual-tree step rule** — *medium*. The adaptive step rule's branch-and-bound
+  search returns exactly the pairwise answer but prunes weakly, because what it
+  looks for is the shortest timescale in the system and almost nothing can be
+  excluded for being slower than it. Comparing cells against cells rather than
+  bodies against cells would prune far better. 3.5x today, where the other three
+  tree-backed searches got 7x to 16x.
+- **Per-body or block time-stepping** — *large*. Sub-stepping is global: one
+  tight pair subdivides the step for every body in the scene, including bodies
+  nowhere near it. Confining the cost to the bodies that earn it is the standard
+  answer and a substantial change — bodies would sit at different times, so
+  force evaluation needs positions extrapolated to a common one, and the
+  integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming they do
+  not.
+- **Drawing** — *medium*. Roughly half of the Galaxy preset's frame is spent
+  drawing rather than simulating. Batching by layer took 400 bodies from 83 ms
+  to 22 ms; the glow pass is the next thing to go, and beyond that the honest
+  answer is that p5's immediate-mode canvas is the ceiling.
+
+## M8 — Checking it against reality
+
+*Medium*, and newly unblocked. This was deferred with the reason "it would mean
+little while M1 is outstanding: the fixed-step error would dominate any
+comparison". M1 is done, so that reason has expired and the item is live.
+
+Take a real ephemeris — the inner planets over a century, say — scale it into
+this engine's units, run it, and publish the divergence the way
+[`INTEGRATORS.md`](INTEGRATORS.md) publishes orbital error. The work is mostly in
+the scaling: `SIMULATION_G` is a tuning value chosen so the sliders produce
+forces the field can draw, not a physical constant, so a comparison needs a
+declared length and time scale and the arithmetic to match.
+
+What it would buy is the one thing the current tests cannot: evidence that the
+force law and the integrator together reproduce something nobody chose.
+
+## M9 — Housekeeping
+
+- **No linter** — *small*. TypeScript's `strict` plus `noUnusedLocals` has caught
+  everything so far, but ESLint should go in before the codebase grows further.
+  It has grown a good deal since this was first written.
+- **`index.html` carries its styles and markup inline** — *small*. Fine at this
+  size; it should be split now that the control panel has four sections and the
+  stylesheet has grown past a screenful.
+- **The control panel is a single column** — *small*. It starts scrolling
+  internally below 776px of viewport height, and every control added lifts that
+  threshold. The Physics section is a collapsed `<details>` holding the line; the
+  rest of the panel wants the same treatment. There is still no *responsive*
+  behaviour: the panels do not reflow, they simply happen to be narrow enough
+  not to matter.
+- ~~The UI panels overlap each other in a small window.~~ **Done.** The overlap
+  was vertical, not horizontal: the control panel is capped at
+  `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of
+  growing down into the info panel, and `npm run smoketest` checks the two stay
+  clear at 1280×620. Width was never a factor — measured from 320px up, the
+  bottom pair never collide.
+
+## M10 — Deliberately deferred
+
+Recorded so the omissions read as decisions rather than oversights. Each one
+names the reason, so that when a reason expires the item can be reconsidered —
+which is exactly what happened to the ephemeris comparison, now M8.
 
 - **3D.** A genuinely different project: the camera, the picking, the field
   visualization and the renderer would all be replaced, and a 3D vector field is
@@ -188,31 +284,8 @@ Recorded so the omissions read as decisions rather than oversights.
 - **Relativistic corrections.** Precise, invisible at these scales, and would
   make the simulation slower and no more instructive.
 - **Alternative force laws** (inverse-cube, spring). A one-line change to
-  `attractionTo`, but every calibrated constant in the renderer and the field
-  sampler assumes 1/r². Cheap to add, not cheap to make *look* right.
+  `gravitationalForce`, but every calibrated constant in the renderer and the
+  field sampler assumes 1/r². Cheap to add, not cheap to make *look* right.
 - **Mobile / touch support.** The interaction model is built on three mouse
   buttons, a wheel, and Ctrl. A touch version needs its own interaction design,
   not a polyfill. The page is usable but not good on a phone.
-- **A physics-accuracy test against real ephemeris data.** Tempting, and it
-  would mean little while M1 is outstanding: the fixed-step error would dominate
-  any comparison.
-
-## M7 — Housekeeping
-
-- No linter. The project is small enough that TypeScript's `strict` plus
-  `noUnusedLocals` has caught everything so far, but ESLint should go in before
-  the codebase grows.
-- `index.html` carries its styles and markup inline. Fine at this size; it
-  should be split if the UI grows.
-- The control panel is a single column and starts scrolling internally below
-  776px of viewport height. The Integration section is a collapsed `<details>`
-  to hold that line; the rest of the panel wants the same treatment before it
-  gains many more controls.
-- ~~The UI panels overlap each other in a small window.~~ **Done.** The
-  overlap was vertical, not horizontal: the control panel is now capped at
-  `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of
-  growing down into the info panel, and `npm run smoketest` checks the two stay
-  clear at 1280×620. Width was never a factor — measured from 320px up, the
-  bottom pair never collide. Numbers in [`KNOWNISSUES.md`](KNOWNISSUES.md).
-  What is still missing is any *responsive* behaviour: the panels do not
-  reflow, they simply happen to be narrow enough not to matter.

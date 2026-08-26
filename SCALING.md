@@ -163,16 +163,17 @@ Three things are worth knowing about the numbers above:
 tens of milliseconds however few bodies there are, because that is 12,000 tree
 queries. The sample cap was chosen when the field was the only thing on screen;
 a scene with hundreds of bodies wants far fewer arrows, not more, and the Galaxy
-preset turns the field off for that reason.
+preset turns the field off for that reason. The fix is a sampling policy rather
+than a faster query — roadmap M5.
 
 **The step rule is the least improved.** Branch and bound cuts it by about 3.5x,
 not by an order of magnitude, because the bound is weak exactly when it matters:
 the answer being searched for is the shortest timescale in the system, so almost
 nothing can be excluded on the grounds of being slower than it. A dual-tree
 traversal — comparing cells against cells rather than bodies against cells —
-would prune far better, and is the obvious next move if this becomes the wall.
+would prune far better. Roadmap M7.
 
 **Drawing is now a real share of the frame.** Hundreds of bodies means hundreds
 of circles, and p5 charges for every `fill()` and `stroke()`. Batching those
 into one pass per layer took 400 bodies from 83 ms a frame to 22 ms; the next
-thing to go would be the glow pass.
+thing to go would be the glow pass. Roadmap M7.

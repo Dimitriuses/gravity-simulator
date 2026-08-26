@@ -73,7 +73,7 @@ M2, done). Contact is defined at the sum of the two radii, which is exactly
 where the force law softens - past that point the bodies are inside each other
 and the simulation has nothing meaningful left to say about them.
 
-What the model does not include:
+What the model does not include — roadmap M6 covers the first four:
 
 - **Merging is perfectly inelastic and irreversible.** Mass and momentum are
   conserved exactly; kinetic energy is not, and nothing fragments. Two bodies
@@ -134,7 +134,8 @@ What limits it now, in order:
   A dual-tree traversal is the next move.
 
 Turning off *Show Vector Field* still removes the single largest cost in most
-scenes. Full tables in [`SCALING.md`](SCALING.md).
+scenes. Full tables in [`SCALING.md`](SCALING.md); the sampling policy is
+roadmap M5 and the other two are roadmap M7.
 
 ## Barnes-Hut gives up exact momentum conservation
 
@@ -164,8 +165,8 @@ bodies rather than to the viewport.
 The interaction model needs three mouse buttons, a scroll wheel and Ctrl:
 left-drag places a body, middle-drag or Ctrl+drag pans, wheel zooms. There is no
 touch equivalent, so on a phone or tablet you can place bodies but not pan or
-zoom. The page loads and runs; it is just not controllable. Roadmap M6 — a touch
-version needs its own interaction design rather than a polyfill.
+zoom. The page loads and runs; it is just not controllable. Roadmap M10 — a
+touch version needs its own interaction design rather than a polyfill.
 
 ## Very short windows scroll the control panel
 
@@ -199,4 +200,4 @@ original fix. Now checked by `npm run smoketest` at 1280×620.
 
 TypeScript runs with `strict`, `noUnusedLocals`, `noUnusedParameters` and
 `noFallthroughCasesInSwitch`, which has been sufficient at this size, but there
-is no ESLint configuration. Roadmap M7.
+is no ESLint configuration. Roadmap M9.
