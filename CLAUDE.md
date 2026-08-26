@@ -52,7 +52,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 239 tests run under Node in about nineteen
+plain TypeScript, which is why 244 tests run under Node in about eighteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -124,9 +124,46 @@ only while the pair is exactly touching; the moment they overlap it is two
 points, and equal-and-opposite impulses applied at two different points do not
 conserve angular momentum. Measured before the fix: 1.6% of it gone per bounce.
 
-Pinned by *"conserves angular momentum through a bounce"*, which starts the pair
-exactly in contact so the positional correction — the one part of a contact that
-is a fix-up rather than physics — does not muddy the measurement.
+Pinned by *"conserves angular momentum through a bounce"*, and by *"conserves it
+through a contact that has to separate an overlap too"*, which starts the pair
+half inside each other so that both of a contact's jobs run at once.
+
+### A contact that moves a body pays for the move in spin
+
+Separating an overlap, and winding a swept pair back to where they met, are the
+only two things a contact does that are not impulses — and moving a body changes
+`Σ m (r × v)` by `Σ m (Δ × v)` the instant it happens. `movePair()` in
+`collisions.ts` is the only way either move is made, and it hands that amount to
+the pair's **spin**, shared as one common `Δω = -ΔL / (I_a + I_b)`. Spin is where
+a merge already puts orbital angular momentum, so this is the existing rule
+applied to a second case rather than a new one.
+
+Three measurements, on five mass-3000 bodies dropped interpenetrating and left
+to jostle for 1,500 steps, are what settled the design:
+
+| separation | angular momentum | KE from a standing start | spread |
+|---|---|---|---|
+| move, uncompensated | **-26%** | 1,101 | 69 |
+| separating (Baumgarte) impulse | 0% | **5,805,700** | 63,513 |
+| move, paid into spin | 0% at the contact | 285 | 62 |
+
+The middle row is the textbook remedy and the reason this entry is long. Folding
+the overlap into the impulse conserves angular momentum for free, because then
+*every* change is an impulse at a shared point — and it is energy from nowhere,
+re-applied on every sub-step for as long as gravity holds the contact together.
+Scaling it by `1/dt`, as the textbook does, multiplies it again by the sub-step
+count: that version reached **67 million** units of kinetic energy. Do not
+reintroduce it because it looks more principled.
+
+Compensating one move and not the other is worse than compensating neither
+(**-139%**), which is why both go through `movePair` rather than one of them
+doing its own arithmetic. `CONTACT_SLOP` exists for the same reason: without it
+a resting pair trickles spin forever, since gravity re-closes the gap every step.
+
+The 1.8% a jostling pile still drifts is the integrator, not the contact.
+Measured phase by phase, the contact pass contributes exactly **zero** and
+velocity Verlet contributes all of it — an impulse is a discontinuity, and the
+convergence order Verlet is chosen for assumes there are none.
 
 ### Contact is swept, so speed cannot smuggle a body through another
 

@@ -90,10 +90,25 @@ What the model still does not include:
   the step it is given, so what is left is the curvature the step itself
   ignores, which adaptive stepping already bounds. Accepted rather than
   scheduled — see roadmap M12.
-- **The positional correction is a fix-up, not physics.** Two bodies found
-  overlapping are shoved apart along the contact normal, which perturbs momentum
-  by a little. It only runs on an actual overlap, which swept detection has made
-  rare. Roadmap M12.
+- **Separating an overlap moves bodies, and moving bodies costs angular
+  momentum.** It is the one thing a contact does that is not an impulse: two
+  bodies found inside each other are pushed apart along the normal, the heavier
+  giving least ground, which leaves the centre of mass alone but changes
+  `Σ m (r × v)` by `Σ m (Δ × v)`. That amount is no longer dropped — it is added
+  to the pair's spin, where a merge already puts orbital angular momentum, so
+  the total across a contact comes out unchanged to floating-point. The same is
+  done for the swept rewind, which is a displacement too.
+
+  What is left is not the contact's: a pile of five heavy bodies jostling for
+  1,500 steps drifts by **1.8%**, and measuring phase by phase attributes all of
+  it to velocity Verlet under repeated impulses and none of it to the contact
+  pass. A contact is a discontinuity, and the convergence order the integrator
+  is chosen for assumes there are none.
+- **A resting contact keeps a sliver of overlap.** The separation ignores the
+  last twentieth of a unit, because gravity presses a resting pair together by a
+  hair every step and answering each one would trickle angular momentum into
+  spin for as long as the scene ran. The sliver is far below a pixel at any zoom
+  the camera allows.
 - **Gravity applies no torque.** A body is a point mass to the force law, so
   spin changes only at contact — there are no tidal effects, and nothing spins
   up or down by orbiting.

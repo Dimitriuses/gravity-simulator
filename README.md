@@ -225,7 +225,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 239 unit tests, headless, ~19s
+npm test            # 244 unit tests, headless, ~18s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -283,8 +283,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
 - **Collisions are still simple.** Merging is perfectly inelastic and
   irreversible, and nothing fragments. Gravity applies no torque, so spin
-  changes only at contact. The overlap correction that separates two
-  interpenetrating bodies is a fix-up rather than physics.
+  changes only at contact. Separating two interpenetrating bodies is done by
+  moving them, which is the one part of a contact that is not an impulse — the
+  angular momentum the move would cost is paid into the pair's spin, so the
+  total still comes out unchanged.
 - **Arrow length is frame-relative.** Magnitudes span ~10⁶, so arrows are
   normalized logarithmically against the range present in the current frame. The
   legend now prints that range, so the picture can be read in absolute terms —

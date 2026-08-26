@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CONTACT_SLOP,
   RESTITUTION,
   overlapping,
   resolveCollisions,
@@ -34,6 +35,30 @@ function touchingPair(massA: number, massB: number, velocityA: Vector2D, velocit
   const a = new Particle(0, 0, massA, velocityA.x, velocityA.y);
   const b = new Particle(a.radius, 0, massB, velocityB.x, velocityB.y);
   return [a, b];
+}
+
+/**
+ * Two bodies exactly at contact distance — touching, not overlapping.
+ *
+ * The distinction matters to every test about the *bounce*: an overlapping pair
+ * also gets the separating bias, which is a second impulse on top of the one
+ * being measured. `touchingPair` above puts them half inside each other, which
+ * is right for testing a merge and wrong for testing restitution.
+ */
+function justTouchingPair(
+  massA: number,
+  massB: number,
+  velocityA: Vector2D,
+  velocityB: Vector2D
+) {
+  const a = new Particle(0, 0, massA, velocityA.x, velocityA.y);
+  const contact = a.radius + Particle.radiusForMass(massB);
+
+  // A hair inside contact distance, not exactly on it: `overlapping` asks for a
+  // strict inequality, so a pair placed exactly at contact is not in contact at
+  // all and nothing would happen. A nanometre is far below the slop, so the
+  // separating bias stays zero and the bounce is all that is measured.
+  return [a, new Particle(contact - 1e-9, 0, massB, velocityB.x, velocityB.y)];
 }
 
 describe('contact detection', () => {
@@ -151,7 +176,7 @@ describe('merging', () => {
 
 describe('bouncing', () => {
   it('conserves momentum but not kinetic energy', () => {
-    const particles = touchingPair(200, 100, new Vector2D(4, 0), new Vector2D(-4, 0));
+    const particles = justTouchingPair(200, 100, new Vector2D(4, 0), new Vector2D(-4, 0));
     const momentumBefore = momentum(particles);
     const energyBefore = kineticEnergy(particles);
 
@@ -165,7 +190,7 @@ describe('bouncing', () => {
   });
 
   it('reverses the approach at the restitution coefficient', () => {
-    const particles = touchingPair(100, 100, new Vector2D(4, 0), new Vector2D(-4, 0));
+    const particles = justTouchingPair(100, 100, new Vector2D(4, 0), new Vector2D(-4, 0));
     const approachBefore = particles[1].velocity.sub(particles[0].velocity).magnitude();
 
     resolveCollisions(particles, 'bounce');
@@ -174,26 +199,100 @@ describe('bouncing', () => {
     expect(separation).toBeCloseTo(approachBefore * RESTITUTION, 10);
   });
 
-  it('pushes the pair apart so they are no longer overlapping', () => {
-    // Without the positional correction the two stay inside each other,
-    // collide again next step, and jitter indefinitely.
+  it('pushes the pair apart, to all but a sliver of contact', () => {
+    // Without the separation the two stay inside each other, collide again next
+    // step, and jitter indefinitely. The sliver that is left is the slop, and
+    // it is what stops a *resting* contact correcting forever: gravity presses
+    // the pair together by a hair each step, and a separation that insisted on
+    // exact contact would answer every single one — each answer handing a
+    // little more angular momentum to the pair's spin.
     const particles = touchingPair(200, 100, new Vector2D(4, 0), new Vector2D(-4, 0));
+    const overlapBefore =
+      particles[0].radius +
+      particles[1].radius -
+      particles[1].position.sub(particles[0].position).magnitude();
 
     resolveCollisions(particles, 'bounce');
 
-    expect(overlapping(particles[0], particles[1])).toBe(false);
+    const overlapAfter =
+      particles[0].radius +
+      particles[1].radius -
+      particles[1].position.sub(particles[0].position).magnitude();
+
+    expect(overlapBefore).toBeGreaterThan(1);
+    expect(overlapAfter).toBeCloseTo(CONTACT_SLOP, 10);
   });
 
-  it('does not hit a pair that is already separating', () => {
-    // Overlapped but moving apart: another impulse would add energy rather
-    // than remove it.
-    const particles = touchingPair(100, 100, new Vector2D(-2, 0), new Vector2D(2, 0));
+  it('leaves a resting pair alone rather than arguing with gravity', () => {
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'bounce';
+    const a = new Particle(0, 0, 200);
+    engine.addParticle(a);
+    engine.addParticle(new Particle(a.radius * 2, 0, 200));
+
+    for (let i = 0; i < 400; i++) engine.step();
+
+    const speed = engine.particles.map((p) => p.velocity.magnitude());
+    expect(Math.max(...speed)).toBeLessThan(0.5);
+    for (const particle of engine.particles) {
+      expect(Number.isFinite(particle.position.x)).toBe(true);
+    }
+  });
+
+  it('settles a pile dropped inside itself instead of firing it off screen', () => {
+    // Five heavy bodies placed 43 units interpenetrated, which is what a
+    // handful of clicks in the same spot produces. Separating them with the
+    // textbook bias impulse instead of by moving them turned that standing
+    // start into 5.8 million units of kinetic energy and a spread of 63,513
+    // world units: the impulse is energy from nowhere, and gravity keeps the
+    // contact alive to collect it on every sub-step.
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'bounce';
+    for (const [x, y] of [
+      [0, 0],
+      [14, 6],
+      [-6, 14],
+      [8, -12],
+      [-14, -4],
+    ]) {
+      engine.addParticle(new Particle(x, y, 3000));
+    }
+
+    for (let i = 0; i < 2000; i++) engine.step();
+
+    const spread = Math.max(...engine.particles.map((p) => p.position.magnitude()));
+    const energy = kineticEnergy(engine.particles);
+
+    // They are heavy and touching, so they stay a huddle: nothing is thrown.
+    expect(spread).toBeLessThan(200);
+    expect(energy).toBeLessThan(20000);
+    for (const particle of engine.particles) {
+      expect(Number.isFinite(particle.position.x)).toBe(true);
+    }
+  });
+
+  it('does not hit a pair that is touching and already separating', () => {
+    // Nothing left to do: they are not overlapping, and they are on their way
+    // out. Another impulse would add energy rather than remove it.
+    const particles = justTouchingPair(100, 100, new Vector2D(-2, 0), new Vector2D(2, 0));
     const energyBefore = kineticEnergy(particles);
 
     const events = resolveCollisions(particles, 'bounce');
 
     expect(events).toBe(0);
     expect(kineticEnergy(particles)).toBeCloseTo(energyBefore, 10);
+  });
+
+  it('still separates a pair that is buried but drifting apart', () => {
+    // Sinking slowly out of another body is still being inside it. The bounce
+    // has nothing to say about a pair already moving apart; the overlap does.
+    const particles = touchingPair(100, 100, new Vector2D(-0.01, 0), new Vector2D(0.01, 0));
+    const before = particles[1].position.sub(particles[0].position).magnitude();
+
+    const events = resolveCollisions(particles, 'bounce');
+
+    expect(events).toBe(0);
+    expect(particles[1].position.sub(particles[0].position).magnitude()).toBeGreaterThan(before);
   });
 
   it('settles rather than ringing, over repeated contacts', () => {
@@ -433,6 +532,55 @@ describe('spin', () => {
 
     const after = a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin);
     expect(after).toBeCloseTo(before, 8);
+  });
+
+  it('conserves it through a contact that has to separate an overlap too', () => {
+    // This is what the separation change bought. The pair starts half inside
+    // each other, so the contact does two jobs at once: an impulse at the
+    // shared contact point, which conserves the total by construction, and a
+    // move to get them apart, which does not — the move's `Σ m (Δ × v)` is
+    // handed to the pair's spin instead of being dropped. Before that, this
+    // test could not be written: it had to start the pair exactly touching so
+    // that the separation never ran.
+    const a = new Particle(0, 0, 200, 1, 2);
+    const b = new Particle(a.radius * 0.7, a.radius * 0.7, 300, -3, 1);
+    a.angularVelocity = 0.4;
+    b.angularVelocity = -0.1;
+
+    const origin = new Vector2D(0, 0);
+    const angularBefore = a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin);
+    const linearBefore = momentum([a, b]);
+
+    expect(overlapping(a, b)).toBe(true);
+    resolveContact(a, b, 0.5);
+
+    expect(a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin)).toBeCloseTo(
+      angularBefore,
+      8
+    );
+    expect(momentum([a, b]).x).toBeCloseTo(linearBefore.x, 8);
+    expect(momentum([a, b]).y).toBeCloseTo(linearBefore.y, 8);
+  });
+
+  it('conserves it through a swept contact, where the rewind moves them too', () => {
+    // The rewind puts a pair back where they first touched, which is a move
+    // backwards along the step each body took — not along the velocity it is
+    // carrying now, because gravity changed that during the step. So it costs
+    // angular momentum exactly as the separation does, and pays it back the
+    // same way. Compensating only the separation and leaving this alone was
+    // measurably *worse* than compensating neither: -139% against -26% over
+    // 1,500 steps of a jostling pile.
+    const a = new Particle(0, 0, 200, 0, 0);
+    const b = new Particle(3, 4, 300, -6, -8);
+    a.angularVelocity = 0.2;
+    const previous = [new Vector2D(0, 0), new Vector2D(30, 40)];
+
+    const origin = new Vector2D(0, 0);
+    const before = a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin);
+
+    resolveCollisions([a, b], 'bounce', Infinity, 0.5, previous);
+
+    expect(a.angularMomentumAbout(origin) + b.angularMomentumAbout(origin)).toBeCloseTo(before, 6);
   });
 
   it('conserves linear momentum through a bounce, spin and all', () => {

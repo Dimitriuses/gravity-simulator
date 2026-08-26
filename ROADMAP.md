@@ -258,7 +258,8 @@ angular momentum. Measured, 1.6% of it vanished per bounce. Both arms now run to
 one shared contact point in the middle of the overlap.
 
 Left open: the positional correction is a fix-up rather than physics, and
-fragmentation was never started. Both now **M12**.
+fragmentation was never started. Both now **M12**, where the first was fixed and
+the second stayed deferred.
 
 ## M11 — Interface polish and persistence — **done**
 
@@ -297,18 +298,46 @@ reflow; they simply happen to be narrow enough not to matter, and opening all
 three sections at once still pushes the buttons past the fold in an 800px
 window. Now **M9**, with the rest of the housekeeping.
 
-## M12 — Contact physics, continued
+## M12 — Contact physics, continued — **partly done**
 
-What M6 left on the table. The first item is a real defect with a known remedy;
-the second is a design problem wearing a physics problem's clothes.
+What M6 left on the table. The first item was a real defect and is fixed — by a
+different remedy than the one written down here, for reasons measured below. The
+second is a design problem wearing a physics problem's clothes, and stays
+deferred.
 
-- **The positional correction is a fix-up, not physics** — *medium*. Two bodies
-  found overlapping are shoved apart along the contact normal, which perturbs
-  momentum and angular momentum by a little — the one part of a contact that
-  does not conserve what the rest of it carefully does. The standard remedy is
-  to fold the overlap into the impulse as a bias term rather than moving bodies
-  behind the solver's back. Swept detection has made an overlap rare, which is
-  why this is medium rather than urgent.
+- ~~The positional correction is a fix-up, not physics.~~ **Done**, though not
+  by the remedy this entry proposed, and the difference is worth recording.
+
+  The proposal was the textbook one: fold the overlap into the impulse as a bias
+  term rather than moving bodies behind the solver's back. That was built first.
+  It conserves angular momentum perfectly — every change a contact makes is then
+  an impulse at one shared point — and it is unusable. A separating impulse is
+  energy from nowhere, gravity keeps a contact alive to collect it on every
+  sub-step, and the textbook `1/dt` scaling multiplies it by however finely the
+  frame happens to be sliced. Five heavy bodies dropped interpenetrating gained
+  **67 million** units of kinetic energy from a standing start and left the
+  screen; tying the correction to simulation time rather than the sub-step
+  brought that to 5.8 million, which is not a fix.
+
+  What shipped keeps the move and pays for it. Displacing a body changes
+  `Σ m (r × v)` by `Σ m (Δ × v)`, so that amount is handed to the pair's **spin**
+  — which is exactly where a merge already puts orbital angular momentum. The
+  same measurement, five bodies jostling for 1,500 steps:
+
+  | separation | angular momentum | kinetic energy from rest | spread |
+  |---|---|---|---|
+  | move, uncompensated (before) | **-26%** | 1,101 | 69 |
+  | bias impulse | 0% | **5,805,700** | 63,513 |
+  | move, paid into spin | **0%** at the contact | 285 | 62 |
+
+  The 1.8% the pile does drift is velocity Verlet's own truncation error under
+  repeated impulses: measured phase by phase, the contact pass contributes
+  exactly zero and the integrator contributes all of it.
+
+  There were **two** moves, not one — the swept rewind displaces a pair as well,
+  backwards along the step each body took rather than along the velocity it now
+  carries. Compensating only the separation and leaving the rewind alone was
+  worse than compensating neither, at -139%.
 - **Fragmentation** — *large*, and **still deferred**, for the reason it has
   always been deferred: the fragments' number, sizes and velocities are all free
   parameters, and conserving mass, momentum and energy through a break-up while
