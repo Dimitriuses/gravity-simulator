@@ -52,7 +52,9 @@ Two things came out of doing it that were not in the plan:
   inside a mass-5000 primary. Corrected there, along with the floor it implies -
   no physical circular orbit can be resolved worse than about 25 steps per orbit.
 
-Left open: sub-stepping is global. Now **M7**.
+Left open: sub-stepping is global — one tight pair subdivides the step for the
+whole scene. Carried through M7, which measured the frame's costs without
+changing this one, and now **M15**.
 
 ## M2 - Collisions and merging - **done**
 
@@ -82,7 +84,9 @@ body a different size from every other body of the same mass, so the merged
 radius comes from the merged mass instead.
 
 Left open: rotation, swept detection, fragmentation, restitution as a control.
-All now **M6**.
+All went to **M6**, which delivered three of the four; fragmentation has been
+carried unstarted ever since and is now **M16**, with its design questions
+written out.
 
 ## M3 - Scale: Barnes-Hut - **done**
 
@@ -131,9 +135,10 @@ Two things surfaced that were not in the plan:
   every preset declare what it wants, those economies followed the user into
   whatever scene they loaded next.
 
-Left open: the field's sample budget is blind to body count (now **M5**), and
-the step rule and the drawing cost are the frame's remaining superlinear parts
-(now **M7**).
+Left open: the field's sample budget is blind to body count (went to **M5**),
+and the step rule and the drawing cost are the frame's remaining superlinear
+parts (went to **M7**, which cut the step rule to an eighth and found that
+drawing was never the wall).
 
 ---
 
@@ -298,12 +303,13 @@ reflow; they simply happen to be narrow enough not to matter, and opening all
 three sections at once still pushes the buttons past the fold in an 800px
 window. Now **M9**, with the rest of the housekeeping.
 
-## M12 — Contact physics, continued — **partly done**
+## M12 — Contact physics, continued — **done**
 
 What M6 left on the table. The first item was a real defect and is fixed — by a
 different remedy than the one written down here, for reasons measured below. The
-second is a design problem wearing a physics problem's clothes, and stays
-deferred.
+second is a design problem wearing a physics problem's clothes and has been
+carried, unstarted, since M2; it is now **M16**, where the design questions are
+written out rather than the intention restated.
 
 - ~~The positional correction is a fix-up, not physics.~~ **Done**, though not
   by the remedy this entry proposed, and the difference is worth recording.
@@ -338,12 +344,7 @@ deferred.
   backwards along the step each body took rather than along the velocity it now
   carries. Compensating only the separation and leaving the rewind alone was
   worse than compensating neither, at -139%.
-- **Fragmentation** — *large*, and **still deferred**, for the reason it has
-  always been deferred: the fragments' number, sizes and velocities are all free
-  parameters, and conserving mass, momentum and energy through a break-up while
-  producing something that reads as a collision rather than confetti is a design
-  problem before it is a physics one. Merging is the easy direction and it is
-  the one that is done.
+**Left open:** fragmentation, which was never started and is now **M16**.
 
 **Accepted rather than open:** the sweep assumes each body travels in a straight
 line within a sub-step. It is exact for the step it is given, so what remains is
@@ -351,15 +352,17 @@ the curvature the step itself ignores — which is the adaptive step rule's job,
 and it already bounds it. Recorded in [`KNOWNISSUES.md`](KNOWNISSUES.md) as a
 property rather than tracked here as a task.
 
-## M7 — The costs that are left — **mostly done**
+## M7 — The costs that are left — **done**
 
 M3 took the two obvious quadratic costs out of the frame. What it left behind was
 smaller, harder, and only worth doing if scenes got bigger than the Galaxy
 preset — which is why this sat below the milestones that improve what the
 simulator *does*.
 
-Three of the four are done. The one that mattered most was not on the list at
-all: the frame's largest cost turned out to be a field nobody was looking at.
+Three of the four are done and the fourth turned out to be a different kind of
+change from the rest of this list — structural rather than a cost to shave — so
+it is now **M15**. The one that mattered most was not on the list at all: the
+frame's largest cost turned out to be a field nobody was looking at.
 
 - ~~A dual-tree step rule~~ — **done**. The adaptive step rule's
   branch-and-bound search returned exactly the pairwise answer but pruned
@@ -380,13 +383,10 @@ all: the frame's largest cost turned out to be a field nobody was looking at.
   coincident bodies, and a single pair — comparing the timescale itself rather
   than the integer sub-step count it feeds, which is coarse enough to round a
   wrong answer back onto the right one.
-- **Per-body or block time-stepping** — *large*, and the one item here **still
-  open**. Sub-stepping is global: one tight pair subdivides the step for every
-  body in the scene, including bodies nowhere near it. Confining the cost to the bodies that earn it is the standard
-  answer and a substantial change — bodies would sit at different times, so
-  force evaluation needs positions extrapolated to a common one, and the
-  integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming they do
-  not.
+- **Per-body or block time-stepping** — *large*, moved out to **M15**. It is the
+  only item here that changes what the engine *is* rather than what it costs:
+  bodies would sit at different times, which the integrator contract in
+  [`CLAUDE.md`](CLAUDE.md) is written assuming they do not.
 - ~~The contour grid does not thin out~~ — **done**, and the grid was the
   smaller half of the problem. It does now thin out: a coarse pass samples every
   other lattice point, and only the cells whose corners straddle a level are
@@ -458,9 +458,11 @@ caveats in [`EPHEMERIS.md`](EPHEMERIS.md); what it settled:
   and is checked against that two-body control — three habits any measurement
   taken out of this simulation should copy.
 
-**Still open:** the model is flat, because the simulation is. Three dimensions
-would be a different program rather than a bigger one, and the 2D result is
-worth more with its error stated than a 3D result would be worth unstated.
+**Left open:** two things, of different kinds. The model is flat because the
+simulation is, which is not a task but a consequence of **M10**'s decision about
+3D — recorded there with the number it costs. What *is* a task is that a century
+is too short a window for the outer planets and Mercury is not the only orbit
+worth measuring: that is **M14**.
 
 ## M9 — Housekeeping — **done**
 
@@ -520,6 +522,122 @@ way to see what the solver is doing.
   clear at 1280×620. Width was never a factor — measured from 320px up, the
   bottom pair never collide.
 
+## M13 — Reading the picture in absolute terms
+
+*Medium.* Three things a viewer cannot currently do, which have the same shape:
+the simulation knows a number and the screen does not say it.
+
+- **Arrow lengths are relative to the frame they are in** — *medium*. Length and
+  hue are normalized against the range of magnitudes present in the *current*
+  frame, which is what keeps them legible across the ~10⁶ span the sliders can
+  produce, and what makes two frames incomparable by eye. M5 gave the picture an
+  absolute reading by printing the range in the legend, and M11 gave distance a
+  fixed one with the ruler. Force has the first and not the second: you can look
+  up what the longest arrow is worth, and you still cannot compare it with the
+  longest arrow in the frame before.
+
+  The proposal is a **lock**: a control that pins the normalization to the range
+  as it stands, so that from then on a longer arrow means a larger force, full
+  stop. It cannot be the default — a scene that collapses after the lock is set
+  saturates to a screen of red, and one that flies apart fades to nothing — so
+  the legend has to say it is locked, and to what, in the same place it prints
+  the range now.
+- **The followed body has no readout** — *small*. Shift-clicking a body already
+  singles it out for the camera (M9). Its mass, speed, distance from the
+  system's barycentre and net force are all known and none of them are shown;
+  the debug overlay reports the system, and there is nothing that reports one
+  body. The overlay's own machinery — computed only while it is up, four times a
+  second — is the right shape for this too.
+- **The control panel is still one column** — *small*. The sticky action row from
+  M9 means nothing is unreachable, but a fourth `<details>` section would push
+  the *middle* of the panel out of view, and the answer to that is a second
+  column at wide viewports rather than more folding. It becomes work when
+  something needs adding to the panel; it is recorded here so that the next
+  person to add a control knows which way to go.
+
+## M14 — A longer ephemeris window
+
+*Small*, and it strengthens something already published. M8 ran a Julian century
+and three of its tables carry a caveat that a longer run would remove.
+
+- **A century is too short for the giants.** Jupiter completes 8.4 orbits in the
+  window, Saturn 3.4, Uranus 1.2, Neptune 0.6 — so their perihelion rows measure
+  the phase of a long oscillation rather than a rate, and Jupiter and Saturn's
+  900-year exchange is longer than the window itself. A millennium is ten times
+  the run, which is four minutes rather than twenty-four seconds, and nothing
+  about the tool needs to change to do it.
+- **Venus's perihelion is ill-conditioned**, at e = 0.0068: where the perihelion
+  of a nearly circular orbit *is* barely means anything, and both the measured
+  and the published rate are small differences of large wandering quantities.
+  Fitting `h = e·sin ϖ` and `k = e·cos ϖ` instead — which stay well-behaved
+  through a circular orbit — and deriving the rate from those is the standard
+  answer and would replace the one row in EPHEMERIS.md that currently reads as
+  noise.
+- **Nothing notices if the tool stops running.** `npm run ephemeris -- --quick`
+  is ten seconds and CI does not run it. The full measurement does not belong in
+  CI — it is a published result, not a test — but a run that no longer starts is
+  worth catching there.
+
+## M15 — Per-body time-stepping
+
+*Large*, and inherited from M7, where it was the one item that changes what the
+engine is rather than what it costs.
+
+Sub-stepping is global: one tight pair subdivides the step for every body in the
+scene, including bodies nowhere near it. Confining the cost to the bodies that
+earn it is the standard answer and a substantial change — bodies would sit at
+different times, so a force evaluation needs positions extrapolated to a common
+one, and the integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming
+they do not.
+
+**Measure first, and be willing to stop there.** The question this milestone
+turns on is what fraction of the sub-steps in a frame are spent on bodies that
+did not need them, and nothing in `npm run bench` reports it today. The Galaxy
+preset asks for three sub-steps; if two of them are being paid for by three
+hundred bodies on account of one close pair, the case is made. If the scenes the
+interface encourages rarely subdivide at all, the honest outcome is a paragraph
+in SCALING.md saying so — which is what happened to M7's *drawing* item, and it
+was worth more than the change would have been.
+
+## M16 — Fragmentation
+
+*Large*, and a design problem wearing a physics problem's clothes. It has been
+deferred since M2 with the same one-line reason each time; this is that reason
+written out, so that the next person to pick it up starts from the questions
+rather than from the intention.
+
+Merging is the easy direction: two bodies become one, and mass, momentum and
+angular momentum each have exactly one answer. Breaking one into several has no
+such answer — the fragments' number, their sizes, their velocities and their
+spins are all free, and the conservation laws constrain them without deciding
+them.
+
+What would have to be decided:
+
+- **When.** A break-up needs a threshold, and the natural one is the energy of
+  the impact against something like a binding energy — which this simulation
+  does not have, because a body is a point mass with a radius derived from it.
+  Inventing a strength parameter is inventing physics; deriving one from
+  `G·m²/r` is at least a defensible choice made once.
+- **How many, and how big.** Two equal halves is the only choice that needs no
+  parameters and looks least like a collision. A size distribution looks right
+  and is a free curve.
+- **How fast.** The fragments have to carry the pair's momentum and angular
+  momentum exactly — that part is not negotiable and is already how `absorb`
+  and `movePair` work — but the *spread* of velocities is free, and it is what
+  decides whether the result reads as a break-up or as confetti.
+- **What stops it undoing itself.** Fragments that separate slower than their
+  mutual escape velocity fall straight back together and merge, so a scene would
+  flicker between one body and several. Either the threshold guarantees escape
+  or contacts need a cooldown, and a cooldown is state that every other part of
+  the contact solver manages to do without.
+
+**The acceptance test is written already**, because it is the same one the rest
+of the contact code is held to: mass, linear momentum and angular momentum
+conserved to floating point through a break-up, and the pile it produces settling
+rather than gaining energy. What no test can decide is whether it looks like a
+collision, which is why this is a design task first.
+
 ## M10 — Deliberately deferred
 
 Recorded so the omissions read as decisions rather than oversights. Each one
@@ -529,6 +647,21 @@ which is exactly what happened to the ephemeris comparison, now M8.
 - **3D.** A genuinely different project: the camera, the picking, the field
   visualization and the renderer would all be replaced, and a 3D vector field is
   substantially harder to read than a 2D one. Not planned.
+
+  M8 is where this decision shows up as a number rather than a preference. The
+  ephemeris check lays the solar system flat, and that is worth about **+14″ per
+  century** on Mercury's perihelion — every perturber pulling entirely within
+  Mercury's orbital plane instead of mostly within it. The result is published
+  with the error stated, which is worth more than an unstated 3D one.
+- **Symmetrising Barnes-Hut.** The tree is not symmetric — A may see B
+  individually while B sees A as part of a cell — so the two forces do not
+  cancel and momentum drifts, under 1% over 200 steps on a 200-body disc. The
+  standard remedy is a dual traversal computing mutual cell-cell interactions,
+  which is a rewrite of the force pass to fix a property the app already
+  sidesteps: the exact solver is the default below 128 bodies and can be forced
+  at any size, so the scenes the interface encourages conserve momentum to
+  machine precision already. Reconsider if the tree ever becomes the default at
+  every size.
 - **Relativistic corrections.** Precise, invisible at these scales, and would
   make the simulation slower and no more instructive.
 - **Alternative force laws** (inverse-cube, spring). A one-line change to

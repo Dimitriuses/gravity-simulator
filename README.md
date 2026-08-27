@@ -334,9 +334,11 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) covers what contact physics still
-lacks, the frame costs that are left, and housekeeping — plus what is
-deliberately deferred, and why.
+Active development. [`ROADMAP.md`](ROADMAP.md) is in priority order: putting
+absolute numbers on a picture that is currently frame-relative, a longer window
+for the ephemeris check, per-body time-stepping, and fragmentation — plus what
+is deliberately deferred, and why. Twelve milestones behind it are records of
+what was done, including what was tried and abandoned.
 
 ## Licence
 

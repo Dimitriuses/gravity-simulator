@@ -85,11 +85,12 @@ What the model still does not include:
 - **Merging is perfectly inelastic and irreversible.** Mass, momentum and
   angular momentum are conserved exactly; kinetic energy is not, and nothing
   fragments. Two bodies that graze at high speed merge as readily as two that
-  settle together. Fragmentation is deferred — see roadmap M12.
+  settle together. Fragmentation is roadmap M16, where the design questions it
+  turns on are written out.
 - **The sweep assumes straight-line motion within a sub-step.** It is exact for
   the step it is given, so what is left is the curvature the step itself
-  ignores, which adaptive stepping already bounds. Accepted rather than
-  scheduled — see roadmap M12.
+  ignores, which adaptive stepping already bounds. Accepted as a property rather
+  than tracked as work — see roadmap M12, which closed with it stated.
 - **Separating an overlap moves bodies, and moving bodies costs angular
   momentum.** It is the one thing a contact does that is not an impulse: two
   bodies found inside each other are pushed apart along the normal, the heavier
@@ -134,9 +135,12 @@ force per unit mass — and updates them every frame (roadmap M5). What remains:
 
 - **Lengths are still frame-relative.** Two frames cannot be compared by eye,
   only by the numbers beside them. Distance, at least, now has a ruler: a bar
-  along the bottom of the canvas reading a round number of world units.
+  along the bottom of the canvas reading a round number of world units. The
+  proposal for force is a scale that can be *locked* to the range as it stands —
+  roadmap M13, which also covers the other two places the simulation knows a
+  number and the screen does not say it.
 
-## Nothing is saved unless you ask for it
+## Saving happens on its own; restoring does not
 
 A scene can be written into the address bar and restored from it — **Copy Link**
 does that, and choosing a preset puts its short form there (roadmap M4, done).
@@ -184,8 +188,9 @@ What limits it now, in order:
 
 Turning off *Show Vector Field* still removes the single largest cost in most
 scenes, and now removes it completely rather than only hiding it. Full tables in
-[`SCALING.md`](SCALING.md); what is left of roadmap M7 is per-body time-stepping,
-which is a large change.
+[`SCALING.md`](SCALING.md). Roadmap M7 closed with its costs measured; the one
+structural change it did not make — per-body time-stepping, so that one tight
+pair stops subdividing the step for bodies nowhere near it — is roadmap M15.
 
 ## The default integrator turns orbits that should not turn
 
@@ -219,6 +224,13 @@ Newtonian is not a defect either. The 43″ per century that general relativity
 contributes to that same number is the one thing this cannot produce, and a
 Newtonian simulation that produced it would have a bug.
 
+A century is also a short window for the outer planets — Neptune completes two
+thirds of an orbit in it — so their rows in [`EPHEMERIS.md`](EPHEMERIS.md)
+measure the phase of a long oscillation rather than a rate, and Venus's
+perihelion is ill-conditioned at e = 0.0068 whatever the window. Both are
+roadmap M14, and both are stated in the document beside the numbers they
+qualify.
+
 ## The debug overlay costs a full pairwise pass
 
 `D` shows energy, momentum and angular momentum, and the potential term in the
@@ -241,7 +253,8 @@ zero to machine precision for the exact pairwise sum.
 
 This is inherent to the method rather than a defect in this implementation, and
 it is why the exact solver remains the default below 128 bodies and can be
-forced at any size from the Physics section. Force error itself is small: at the
+forced at any size from the Physics section. Symmetrising the traversal would
+remove it and is deliberately not planned — roadmap M10 names the reason. Force error itself is small: at the
 default opening angle of 0.5, a median of 0.03% on a 256-body disc and 0.2% at
 2,048.
 
@@ -282,7 +295,8 @@ All and Pause sit at the bottom edge whatever the scroll position, and a short
 window tightens the panel's spacing rather than its contents. What is still
 true is that a single column is a single column — a fourth section would push
 the *middle* of the panel out of view, and the answer to that is a second column
-rather than more folding.
+rather than more folding. Roadmap M13, where it becomes work the moment
+something needs adding to the panel.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the
@@ -296,8 +310,18 @@ That overlapped the info panel by 15px at any viewport height below ~690px —
 visible only with the particle list populated, which is why it survived the
 original fix. Now checked by `npm run smoketest` at 1280×620.
 
-## No linter
+## The linter is narrow, and there is no formatter
 
-TypeScript runs with `strict`, `noUnusedLocals`, `noUnusedParameters` and
-`noFallthroughCasesInSwitch`, which has been sufficient at this size, but there
-is no ESLint configuration. Roadmap M9.
+ESLint 10 with typescript-eslint runs in CI ahead of the typecheck (roadmap M9),
+but what it enforces is deliberately small: the rules that catch mistakes a type
+checker cannot see — `eqeqeq`, `no-fallthrough`, no `any`, unused parameters, an
+unawaited promise. `strict`, `noUnusedLocals`, `noUnusedParameters` and
+`noFallthroughCasesInSwitch` were doing the heavy lifting before it and still
+are; the linter found exactly one thing on its first run across the whole
+codebase.
+
+There is no formatter, and adding one would rewrite every file in the project in
+a single commit. Layout is therefore by hand and by eye, and it is consistent
+enough to describe: two-space indent, code lines under 100 columns bar eight of
+them, and prose comments wrapped at 80 — measured across `src/` and `tests/`,
+where the median comment line is 71 characters and the longest is 87.
