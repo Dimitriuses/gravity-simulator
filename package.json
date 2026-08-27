@@ -14,6 +14,7 @@
     "screenshots": "node tools/smoketest.mjs --shots",
     "verify:install": "node tools/verify-install.mjs",
     "compare": "node tools/compare-integrators.mjs",
+    "ephemeris": "node tools/check-ephemeris.mjs",
     "bench": "node tools/benchmark-scaling.mjs"
   },
   "keywords": [

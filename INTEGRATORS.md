@@ -157,6 +157,35 @@ common barycentre. An earlier version of this harness used `G·M` with a fixed
 primary, which biased every scheme's phase by about 0.14°/orbit — enough to hide
 what RK4 was actually doing at a well-resolved radius.
 
+## Bounded energy error is not accuracy
+
+The tables above measure phase error against Kepler over a few hundred orbits,
+which is the right test for the schemes and understates how badly the difference
+between them can bite. Roadmap M8 ran into the sharp version of it.
+
+Sun and Mercury alone is a two-body problem, so its perihelion does not move at
+all — not approximately, exactly. Measured over a decade of simulated time, with
+each scheme asked what it thinks the perihelion did:
+
+| step, in days | velocity Verlet | RK4 |
+|---:|---:|---:|
+| 0.184 | -26,875″ per century | +1.58″ |
+| 0.092 | -6,717″ | +0.10″ |
+| 0.046 | -1,679″ | +0.01″ |
+| 0.023 | -420″ | +0.00″ |
+
+Verlet's invention falls by exactly 4x per halving, as a second-order scheme's
+should. It is also, at the third row, three times the size of the real effect
+that run was trying to measure, pointing the other way — while conserving energy
+to a part in 10⁹ the whole time.
+
+That is the honest shape of the trade this page opens with. Verlet's bounded
+energy error is what keeps a drawn orbit closed and is why it is the default;
+it says nothing about where along the orbit the body is, or which way the ellipse
+is pointing. Watch simulations with Verlet, measure them with RK4, and check
+any long-run measurement against a case whose answer is known.
+[`EPHEMERIS.md`](EPHEMERIS.md) is that argument in full.
+
 ## What is still open
 
 Adaptive stepping is global: one pair in a tight encounter sub-steps the entire

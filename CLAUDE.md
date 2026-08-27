@@ -20,6 +20,7 @@ entry in it corresponds to a bug that actually shipped.
 | `npm run verify:install` | would CI's npm accept `package-lock.json`? |
 | `npm run compare` | integrator accuracy tables; `-- --write` dumps a file to paste into `INTEGRATORS.md` |
 | `npm run bench` | scaling and quadtree accuracy; `-- --write` dumps a file to paste into `SCALING.md` |
+| `npm run ephemeris` | a century of the real solar system; `-- --write` dumps a file to paste into `EPHEMERIS.md`, `-- --quick` runs a tenth of it |
 
 `npm run dev` uses esbuild, which strips types without checking them. **A green
 dev server proves nothing about whether the project builds** — this is exactly
@@ -45,6 +46,8 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── serialization  scenes as text, for saving and for the URL fragment
   ├── contours       marching squares over any scalar field
   ├── scalebar       the round number the canvas ruler measures
+  ├── units          simulation units <-> SI, for measuring against reality
+  │     └── ephemeris   the planets at J2000, and orbits read back out of a state
   ├── streamlines    evenly spaced curves through any vector field
   └── Renderer     all drawing; the only file that talks to p5's canvas API
         └── Vector2D  immutable 2D vector maths, used everywhere
@@ -52,7 +55,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 246 tests run under Node in about eighteen
+plain TypeScript, which is why 259 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -418,6 +421,35 @@ cells and silently emit duplicates. `tests/OccupancyGrid.test.ts` compares it
 against the naive implementation over thousands of queries, including a
 clustered distribution, because uniform random points rarely collide and would
 let a broken grid pass.
+
+### Two of the three scales are a choice, and the third is not
+
+`units.ts` exists because `SIMULATION_G` is 0.5 — a number picked so the mass
+slider would feel right, not a measurement. Gravity ties the scales together as
+`G_sim = G · kg · s² / m³`, so declaring a length unit and a mass unit *fixes*
+the second: 398.2087 of them, for the solar-system scale. Do not add a
+conversion factor anywhere else; if a number needs to be in seconds, it comes
+through `scaleFor`.
+
+The check that the chain is right is deliberately not self-referential. A
+circular orbit of one au about one solar mass has to come out at **365.2569
+days** travelled at **29.785 km/s**, and `tests/units.test.ts` asserts both.
+Nothing in this repository chose those.
+
+### Verlet conserves energy and invents precession
+
+The default integrator is second-order and symplectic: bounded energy error,
+which keeps a drawn orbit closed, and truncation error that goes into the
+orbit's *orientation* instead. On the two-body problem, where the perihelion
+provably does not move, Verlet turns it -1,679″ per century at a step of a
+twentieth of a day — three times roadmap M8's entire result, backwards — while
+holding energy to a part in 10⁹.
+
+So: watch with Verlet, measure with RK4. Any measurement taken across many
+orbits needs all three of what `tools/check-ephemeris.mjs` does — RK4, two step
+sizes, and a control case whose answer is known independently. Do not read a
+long-run number out of this simulation without them, and do not take energy
+conservation as evidence that a run was accurate.
 
 ### Preset velocities come from an orbit equation, never from a guess
 

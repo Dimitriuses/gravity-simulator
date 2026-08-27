@@ -33,6 +33,7 @@ Thumbs.db
 .cache/
 
 # `--write` scratch output from the measurement tools; the kept copies are
-# INTEGRATORS.md and SCALING.md
+# INTEGRATORS.md, SCALING.md and EPHEMERIS.md
 INTEGRATORS.generated.md
 SCALING.generated.md
+EPHEMERIS.generated.md

@@ -187,6 +187,38 @@ scenes, and now removes it completely rather than only hiding it. Full tables in
 [`SCALING.md`](SCALING.md); what is left of roadmap M7 is per-body time-stepping,
 which is a large change.
 
+## The default integrator turns orbits that should not turn
+
+Velocity Verlet is symplectic, so its energy error is bounded — an orbit drawn
+with it stays closed rather than spiralling, which is exactly what is wanted
+while watching one. Its second-order truncation error goes somewhere else
+instead: into the orientation of the ellipse.
+
+On the two-body problem, where the true answer is that the perihelion does not
+move at all, Verlet reports it moving backwards at 1,679 arcseconds per century
+at a step of a twentieth of a day, and four times that at twice the step. RK4
+reports 0.01″. Nothing about the energy figure hints at it: over the same run
+energy holds to a part in 10⁹.
+
+It is invisible in ordinary use, and it is fatal to a measurement — roadmap M8's
+whole result, Mercury's perihelion, is 545″ per century, which Verlet would have
+buried three times over. Anything measured out of this simulation across many
+orbits belongs in RK4, checked at two step sizes. See
+[`EPHEMERIS.md`](EPHEMERIS.md) and [`INTEGRATORS.md`](INTEGRATORS.md).
+
+## The solar system model is flat, and Newtonian
+
+Both on purpose, both stated wherever a number from it is published. The
+simulation is two-dimensional, so the ephemeris check lays every orbit in the
+ecliptic with its size, shape, orientation and phase intact and drops the
+inclinations. That is worth about +14″ per century on Mercury's perihelion, in
+the direction the argument predicts: laid flat, every perturber pulls entirely
+within Mercury's orbital plane instead of mostly within it.
+
+Newtonian is not a defect either. The 43″ per century that general relativity
+contributes to that same number is the one thing this cannot produce, and a
+Newtonian simulation that produced it would have a bug.
+
 ## Barnes-Hut gives up exact momentum conservation
 
 The approximation is not symmetric: body A may be close enough to see B

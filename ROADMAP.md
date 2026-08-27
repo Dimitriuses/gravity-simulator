@@ -422,21 +422,45 @@ all: the frame's largest cost turned out to be a field nobody was looking at.
   of that, and removing it would change the picture to win half a millisecond in
   a frame with thirteen to spare. It stays.
 
-## M8 — Checking it against reality
+## M8 — Checking it against reality — **done**
 
-*Medium*, and newly unblocked. This was deferred with the reason "it would mean
-little while M1 is outstanding: the fixed-step error would dominate any
-comparison". M1 is done, so that reason has expired and the item is live.
+Deferred once with the reason "it would mean little while M1 is outstanding: the
+fixed-step error would dominate any comparison". That reason turned out to be
+exactly right, and outliving M1 did not repeal it — see the last item below.
 
-Take a real ephemeris — the inner planets over a century, say — scale it into
-this engine's units, run it, and publish the divergence the way
-[`INTEGRATORS.md`](INTEGRATORS.md) publishes orbital error. The work is mostly in
-the scaling: `SIMULATION_G` is a tuning value chosen so the sliders produce
-forces the field can draw, not a physical constant, so a comparison needs a
-declared length and time scale and the arithmetic to match.
+`npm run ephemeris` takes the eight planets' published orbital elements at
+J2000, scales them into the simulation's units, runs a Julian century through
+the same engine the browser runs, and reads the orbits back out. Results and
+caveats in [`EPHEMERIS.md`](EPHEMERIS.md); what it settled:
 
-What it would buy is the one thing the current tests cannot: evidence that the
-force law and the integrator together reproduce something nobody chose.
+- **The scaling.** `SIMULATION_G = 0.5` is a tuning value, so a comparison needs
+  a declared length and mass scale, and then the length of a second is not a
+  choice — it is whatever makes G come out at 0.5. Declaring a hundred units to
+  the astronomical unit, and a mass unit that makes the radius rule give the Sun
+  its own radius, fixes one simulation second at 398.2087 real ones. The check
+  on that arithmetic is a number nobody here chose: a circular orbit of one au
+  about one solar mass comes out at 365.2569 days at 29.785 km/s.
+- **The force law, as an eight-body sum.** Every planet's orbital period lands
+  within a tenth of a percent of the published sidereal period. The Earth's and
+  Mars's perihelia turn at their published rates to within 2%, and their
+  eccentricities drift the right way at the right speed — quantities that are
+  perturbation rather than gravity, and small.
+- **Mercury's perihelion: 545″ per century, against 578″ observed.** The
+  Newtonian planetary contribution is 531.5″ and the simulation, being flat,
+  overstates it by about 14. The 43″ it is short by is the relativistic term,
+  which is the correct thing for a Newtonian simulation to be missing.
+- **A warning about the default integrator**, which is the part worth carrying
+  forward. Velocity Verlet's energy error is bounded and its *phase* error is
+  not: on Sun and Mercury alone, where the true perihelion motion is exactly
+  zero, it invents -1,679″ per century at the step this run uses, while
+  conserving energy to a part in 10⁹ throughout. RK4 reports +0.01″ on the same
+  problem. The published run therefore uses RK4, is checked at two step sizes,
+  and is checked against that two-body control — three habits any measurement
+  taken out of this simulation should copy.
+
+**Still open:** the model is flat, because the simulation is. Three dimensions
+would be a different program rather than a bigger one, and the 2D result is
+worth more with its error stated than a 3D result would be worth unstated.
 
 ## M9 — Housekeeping
 

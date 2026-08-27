@@ -225,11 +225,12 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 246 unit tests, headless, ~18s
+npm test            # 259 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
 npm run bench       # scaling and quadtree accuracy -> SCALING.md
+npm run ephemeris   # a century of the real solar system -> EPHEMERIS.md
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
@@ -240,6 +241,17 @@ integrators get the treatment they need: each is checked against the closed form
 for a constant field, then against its own convergence order by halving the step
 and watching the error fall by 2, 4 and 16, and finally over 500 orbits to
 confirm which schemes bound their energy error and which does not.
+
+None of that, though, says the simulation is *right* — only that it is
+consistent with itself. That is what `npm run ephemeris` is for: it loads the
+eight planets' published orbital elements at J2000, runs a Julian century, and
+compares what comes out against numbers measured by pointing instruments at the
+sky. Orbital periods land within a tenth of a percent, the Earth's and Mars's
+perihelia turn at their published rates to within 2%, and **Mercury's perihelion
+advances at 545″ per century against 578″ observed** — short by about the 43″
+that general relativity accounts for and Newtonian gravity cannot.
+[`EPHEMERIS.md`](EPHEMERIS.md) has the tables, the caveats, and the reason the
+measurement is run through RK4 rather than the default integrator.
 
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
@@ -301,6 +313,12 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   to 12,000 points however few bodies there are. The 300-body Galaxy preset
   holds the display's 60fps with the field overlay off, and single figures with
   it on at full range. [`SCALING.md`](SCALING.md) has the tables.
+- **The default integrator conserves energy, not phase.** Velocity Verlet keeps
+  its energy error bounded, which is what makes an orbit drawn with it stay
+  closed — and its second-order truncation error turns an orbit's perihelion
+  anyway. Measured on Sun and Mercury alone, where the true answer is that
+  nothing turns at all, it invents -1,679″ per century at a step of a twentieth
+  of a day. Watch simulations with Verlet; measure them with RK4.
 - **The tree is an approximation.** At the default opening angle its median
   force error is around 0.03–0.2%, and because it is not symmetric it gives up
   exact momentum conservation. The exact solver stays the default below 128
@@ -309,8 +327,8 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 ## Roadmap
 
 Active development. [`ROADMAP.md`](ROADMAP.md) covers what contact physics still
-lacks, the frame costs that are left, checking the simulation against real
-ephemeris data, and housekeeping — plus what is deliberately deferred, and why.
+lacks, the frame costs that are left, and housekeeping — plus what is
+deliberately deferred, and why.
 
 ## Licence
 
