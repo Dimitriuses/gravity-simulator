@@ -73,12 +73,12 @@ building the tree, which is rebuilt from scratch every evaluation.
 
 | bodies | exact | tree | speed-up |
 |---:|---:|---:|---:|
-| 64 | 0.87 ms | 0.46 ms | 1.89x |
-| 128 | 2.09 ms | 0.92 ms | 2.26x |
-| 256 | 5.21 ms | 1.40 ms | 3.72x |
-| 512 | 20.9 ms | 3.44 ms | 6.07x |
-| 1024 | 78.1 ms | 8.03 ms | 9.72x |
-| 2048 | 325.3 ms | 19.9 ms | 16.39x |
+| 64 | 0.53 ms | 0.41 ms | 1.28x |
+| 128 | 1.47 ms | 0.86 ms | 1.70x |
+| 256 | 4.98 ms | 1.26 ms | 3.96x |
+| 512 | 20.2 ms | 3.10 ms | 6.51x |
+| 1024 | 72.4 ms | 7.33 ms | 9.88x |
+| 2048 | 290.4 ms | 17.1 ms | 17.00x |
 
 ## One field rebuild
 
@@ -88,18 +88,18 @@ helps most, because the sample count does not fall as bodies are added.
 
 | bodies | exact | tree | speed-up | samples |
 |---:|---:|---:|---:|---:|
-| 64 | 42.6 ms | 35.8 ms | 1.19x | 9828 |
-| 128 | 68.3 ms | 38.6 ms | 1.77x | 12000 |
-| 256 | 89.9 ms | 41.8 ms | 2.15x | 12000 |
-| 512 | 152.5 ms | 53.5 ms | 2.85x | 12000 |
-| 1024 | 289.9 ms | 75.5 ms | 3.84x | 12000 |
-| 2048 | 560.5 ms | 117.4 ms | 4.78x | 12000 |
+| 64 | 9.41 ms | 5.75 ms | 1.64x | 3203 |
+| 128 | 26.9 ms | 12.9 ms | 2.09x | 6164 |
+| 256 | 78.3 ms | 29.4 ms | 2.66x | 10063 |
+| 512 | 165.0 ms | 58.7 ms | 2.81x | 11999 |
+| 1024 | 316.2 ms | 85.5 ms | 3.70x | 11999 |
+| 2048 | 615.8 ms | 130.0 ms | 4.74x | 12000 |
 
 ## What each field mode costs
 
-The same scene drawn five ways, over the whole visible region. `samples`
-is what the mode asked the field for: arrows for the three arrow modes,
-grid corners for contours, integration steps for streamlines.
+The same scene drawn five ways, over the whole visible region. `drawn`
+is what the mode produced: arrows for the three arrow modes, line
+segments for contours, integration steps for streamlines.
 
 The point of the gradient mode is the last column. The zone-based mode
 asks for four rings of samples per *body*, so its count runs to the cap and
@@ -107,23 +107,23 @@ gets truncated; the gradient mode asks the field where it changes. Its
 count still grows with the body count — more bodies really is more
 structure — but far more slowly, and it never has to be truncated.
 
-| bodies | mode | time | samples |
+| bodies | mode | time | drawn |
 |---:|---|---:|---:|
-| 3 | gradient | 0.28 ms | 417 |
-| 3 | adaptive | 2.11 ms | 1166 |
-| 3 | uniform | 1.75 ms | 467 |
-| 3 | contours | 21.3 ms | 1436 |
-| 3 | streamlines | 1.73 ms | 286 |
-| 64 | gradient | 8.62 ms | 3203 |
-| 64 | adaptive | 39.9 ms | 9828 |
-| 64 | uniform | 10.8 ms | 2468 |
-| 64 | contours | 7.70 ms | 1435 |
-| 64 | streamlines | 10.5 ms | 1844 |
-| 300 | gradient | 40.1 ms | 11260 |
-| 300 | adaptive | 43.9 ms | 12000 |
-| 300 | uniform | 14.2 ms | 6167 |
-| 300 | contours | 25.8 ms | 1439 |
-| 300 | streamlines | 13.8 ms | 2258 |
+| 3 | gradient | 0.29 ms | 417 |
+| 3 | adaptive | 2.06 ms | 1166 |
+| 3 | uniform | 1.59 ms | 467 |
+| 3 | contours | 3.61 ms | 1444 |
+| 3 | streamlines | 1.97 ms | 286 |
+| 64 | gradient | 7.54 ms | 3203 |
+| 64 | adaptive | 35.3 ms | 9828 |
+| 64 | uniform | 8.71 ms | 2468 |
+| 64 | contours | 5.55 ms | 1443 |
+| 64 | streamlines | 9.11 ms | 1844 |
+| 300 | gradient | 35.3 ms | 11260 |
+| 300 | adaptive | 39.3 ms | 12000 |
+| 300 | uniform | 13.4 ms | 6167 |
+| 300 | contours | 17.8 ms | 1445 |
+| 300 | streamlines | 12.6 ms | 2258 |
 
 ## Where the rest of a frame goes
 
@@ -134,12 +134,12 @@ cost where they have one.
 
 | bodies | contact scan | contact via tree | step rule: scan | step rule: tree |
 |---:|---:|---:|---:|---:|
-| 64 | 0.32 ms | 0.28 ms | 0.98 ms | 0.90 ms |
-| 128 | 0.66 ms | 0.31 ms | 1.39 ms | 1.31 ms |
-| 256 | 2.61 ms | 1.86 ms | 5.80 ms | 2.50 ms |
-| 512 | 2.74 ms | 1.38 ms | 21.2 ms | 6.69 ms |
-| 1024 | 9.60 ms | 1.52 ms | 64.4 ms | 19.7 ms |
-| 2048 | 36.7 ms | 3.97 ms | 267.0 ms | 73.7 ms |
+| 64 | 0.37 ms | 0.28 ms | 1.00 ms | 0.81 ms |
+| 128 | 0.34 ms | 0.19 ms | 1.11 ms | 0.47 ms |
+| 256 | 0.39 ms | 0.36 ms | 3.69 ms | 1.07 ms |
+| 512 | 2.09 ms | 0.66 ms | 15.0 ms | 3.21 ms |
+| 1024 | 8.59 ms | 1.40 ms | 61.7 ms | 8.92 ms |
+| 2048 | 36.8 ms | 3.32 ms | 243.6 ms | 29.8 ms |
 
 ## A whole frame
 
@@ -153,12 +153,12 @@ which is the most expensive thing the controls can ask for — 12,000 samples.
 
 | bodies | exact | tree | sub-steps |
 |---:|---:|---:|---:|
-| 64 | 38.7 ms | 31.0 ms | 2 |
-| 128 | 73.4 ms | 43.4 ms | 3 |
-| 256 | 137.2 ms | 61.9 ms | 3 |
-| 512 | 253.7 ms | 81.5 ms | 3 |
-| 1024 | 630.5 ms | 131.6 ms | 3 |
-| 2048 | 1801.6 ms | 251.8 ms | 3 |
+| 64 | 12.2 ms | 5.79 ms | 2 |
+| 128 | 36.3 ms | 15.6 ms | 3 |
+| 256 | 111.7 ms | 34.8 ms | 3 |
+| 512 | 284.3 ms | 71.9 ms | 3 |
+| 1024 | 726.0 ms | 130.2 ms | 3 |
+| 2048 | 2252.7 ms | 243.9 ms | 3 |
 
 ## What the approximation costs
 
@@ -183,9 +183,9 @@ error justifies.
 
 ## Where this leaves things
 
-At a few hundred bodies the browser holds 30fps with the tree and 12fps without
-it, on the same scene — the Galaxy preset, measured in headless Chromium at
-1280x800. Roughly half of what remains is drawing rather than physics.
+At a few hundred bodies the browser holds the display's own 60fps on the Galaxy
+preset, measured in headless Chromium at 1280x800, where before roadmap M7 it
+held 35 and before the tree, 12. Almost none of what remains is drawing.
 
 Three things are worth knowing about the numbers above:
 
@@ -197,19 +197,38 @@ body. It does not repeal the problem — three hundred bodies really is more
 structure, and by then it too is at the cap — but it moves the wall a long way,
 and the Galaxy preset is the scene that still cannot afford any of them.
 
-**Contours are the most expensive mode**, and the only one whose cost is set
-entirely by its own resolution rather than by the scene: every grid corner is a
-tree query, and the grid does not thin out where the potential is flat. Roadmap
-M7.
+**Contours are no longer the most expensive mode**, and getting them there took
+two changes rather than the one the roadmap expected. The grid now thins out:
+a coarse pass finds which cells a level actually crosses and only those are
+sampled at full resolution, which on this scene is 4,100 evaluations instead of
+5,278. The larger half was the marching itself, which walked all 5,130 cells
+once per level and threw away 98% of the answers — twelve passes to draw twelve
+lines. One walk, touching only the levels a cell's own corners straddle, cut a
+two-body trace from 4.62 ms to 2.59 and the mode as a whole from 24.3 ms to 17.8
+at three hundred bodies, and from 7.05 ms to 2.95 on a small scene, with the
+same lines coming out of it.
 
-**The step rule is the least improved.** Branch and bound cuts it by about 3.5x,
-not by an order of magnitude, because the bound is weak exactly when it matters:
-the answer being searched for is the shortest timescale in the system, so almost
-nothing can be excluded on the grounds of being slower than it. A dual-tree
-traversal — comparing cells against cells rather than bodies against cells —
-would prune far better. Roadmap M7.
+**The step rule was the least improved, and now is not.** Branch and bound —
+each body against the tree — cut it by 3.5x rather than by an order of
+magnitude, because the bound is weak exactly when it matters: the answer being
+searched for is the shortest timescale in the system, so almost nothing can be
+excluded on the grounds of being slower than it. Comparing *cells against
+cells* rejects a whole block of pairs on one test where the old traversal
+rejected one body's share of them and had to re-derive the bound for the next
+body. Measured on the same scenes, the search itself went from 67.1 ms to 34.0
+at two thousand bodies, and the win over the pairwise scan from 3.5x to 8.2x.
 
-**Drawing is now a real share of the frame.** Hundreds of bodies means hundreds
-of circles, and p5 charges for every `fill()` and `stroke()`. Batching those
-into one pass per layer took 400 bodies from 83 ms a frame to 22 ms; the next
-thing to go would be the glow pass. Roadmap M7.
+**Drawing is not the wall, and the thing that was is now gone.** The galaxy
+preset ran at 35fps with a frame that profiled as 85% *field sampling* — on a
+scene that ships with the field overlay switched off, because it cannot afford
+it. `updateField()` ran every frame regardless of whether anything was going to
+draw the result. Skipping it when the overlay is hidden took the preset from 29
+ms a frame to 16.9, which is the vsync interval: it is now capped by the
+display rather than by the work.
+
+What is left of drawing was measured the same way, by profiling a paused frame:
+about **1.1 ms** of it at 211 bodies, some 7%, against 79% idle. The glow pass
+this list proposed removing is roughly half of that. It stays — a change that
+alters the picture to win half a millisecond in a frame with 13 to spare is not
+a trade worth making, and now there is a number to say so rather than an
+assumption.

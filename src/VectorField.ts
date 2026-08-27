@@ -238,7 +238,14 @@ export class VectorField {
       case 'contours':
         this.contours = traceContours(
           (x, y) => this.potentialAt(new Vector2D(x, y), particles, G),
-          view
+          view,
+          undefined,
+          undefined,
+          // Where the structure is. The tracer refines a cell when its corners
+          // straddle a level, and a body small enough to sit inside one coarse
+          // cell without bending it past a level is invisible to that test —
+          // the same blindness the gradient arrow mode had to be told about.
+          particles.map((particle) => particle.position)
         );
         break;
       case 'heightmap':

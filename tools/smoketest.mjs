@@ -196,26 +196,64 @@ try {
 
 
   // ── Frame cost ─────────────────────────────────────────────────────────────
-  const perf = await page.evaluate(
-    () =>
-      new Promise((resolve) => {
-        const times = [];
-        let last = performance.now();
-        const tick = () => {
-          const now = performance.now();
-          times.push(now - last);
-          last = now;
-          if (times.length < 150) requestAnimationFrame(tick);
-          else {
-            times.sort((a, b) => a - b);
-            const median = times[Math.floor(times.length / 2)];
-            resolve({ medianMs: +median.toFixed(2), fps: +(1000 / median).toFixed(1) });
-          }
-        };
-        requestAnimationFrame(tick);
-      })
+  /** Median frame interval over `frames` animation frames, in milliseconds. */
+  const frameTime = (frames = 150) =>
+    page.evaluate(
+      (count) =>
+        new Promise((resolve) => {
+          const times = [];
+          let last = performance.now();
+          const tick = () => {
+            const now = performance.now();
+            times.push(now - last);
+            last = now;
+            if (times.length < count) requestAnimationFrame(tick);
+            else {
+              times.sort((a, b) => a - b);
+              resolve(+times[Math.floor(times.length / 2)].toFixed(2));
+            }
+          };
+          requestAnimationFrame(tick);
+        }),
+      frames
+    );
+
+  const seededFrame = await frameTime();
+  check(
+    'holds at least 50 fps on the seeded scene',
+    1000 / seededFrame >= 50,
+    `${(1000 / seededFrame).toFixed(1)} fps, ${seededFrame} ms/frame`
   );
-  check('holds at least 50 fps on the seeded scene', perf.fps >= 50, `${perf.fps} fps, ${perf.medianMs} ms/frame`);
+
+  // A hidden overlay used to be sampled anyway: `updateField` ran every frame
+  // whatever the checkbox said, so the galaxy preset — the one scene that ships
+  // with the overlay *off* because it cannot afford it — paid the whole cost and
+  // drew nothing. Measured here at the time: 29 ms a frame with the field
+  // hidden, against 17 once the sampling was skipped.
+  //
+  // The comparison is written to survive a machine fast enough to hold 60fps
+  // either way: on such a machine both readings sit at the vsync interval, and
+  // a hidden field that is under it cannot be sampling 11,000 points. On a
+  // slower one, hiding it has to actually buy something.
+  await page.selectOption('#presetSelect', 'galaxy');
+  await page.waitForTimeout(1500);
+
+  await page.check('#showVectors');
+  await page.waitForTimeout(400);
+  const shownFrame = await frameTime();
+
+  await page.uncheck('#showVectors');
+  await page.waitForTimeout(400);
+  const hiddenFrame = await frameTime();
+
+  check(
+    'hiding the vector field stops it being sampled',
+    hiddenFrame <= 17.5 || shownFrame - hiddenFrame >= 5,
+    `${hiddenFrame} ms/frame hidden vs ${shownFrame} shown, at ${await page.textContent('#objectCount')} bodies`
+  );
+
+  await page.selectOption('#presetSelect', 'binary');
+  await page.waitForTimeout(600);
 
   // ── The drag preview ───────────────────────────────────────────────────────
   // Was stroke(255,200,0) interpreted as HSB — brightness 0, i.e. black on a

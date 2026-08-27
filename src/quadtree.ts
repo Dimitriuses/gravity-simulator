@@ -403,62 +403,127 @@ export class QuadTree {
    * taking on trust.
    */
   shortestInteractionTime(G: number): number {
-    let best = Infinity;
+    return this.searchPair(this.root, this.root, G, Infinity);
+  }
 
-    for (let i = 0; i < this.bodies.length; i++) {
-      best = this.searchTimescale(this.root, i, G, best);
+  /**
+   * The shortest timescale between any body in `a` and any body in `b`, given
+   * that nothing better than `best` has been found yet.
+   *
+   * Cells against cells, rather than each body against the tree. The bound is
+   * the same idea either way — the optimistic pair the two cells could
+   * possibly hold — but a cell-pair bound rejects a whole *block* of pairs at
+   * once, where a body-against-cell bound rejects one body's share of them and
+   * has to be re-derived for the next body. That is the difference between
+   * pruning n times and pruning once.
+   *
+   * `a === b` is the self case, and it cannot be pruned: two bodies inside one
+   * cell may be touching, so the optimistic separation is zero. It is split
+   * instead, into each child against itself and each distinct pair of children,
+   * which is also what keeps every pair counted exactly once.
+   */
+  private searchPair(a: QuadNode, b: QuadNode, G: number, best: number): number {
+    if (a.mass === 0 || b.mass === 0) return best;
+
+    if (a === b) {
+      if (!a.children) return this.scanLeaf(a, best, G);
+
+      // Down the diagonal first: the closest pair in the system is far more
+      // likely to be inside one cell than spread across two, and every
+      // cross-pair below is measured against whatever this finds.
+      for (const child of a.children) best = this.searchPair(child, child, G, best);
+
+      for (let i = 0; i < 4; i++) {
+        for (let j = i + 1; j < 4; j++) {
+          best = this.searchPair(a.children[i], a.children[j], G, best);
+        }
+      }
+      return best;
+    }
+
+    if (this.pairBound(a, b, G) >= best) return best;
+
+    if (!a.children && !b.children) return this.scanLeafPair(a, b, best, G);
+
+    // Split whichever cell is larger, so the two descend together rather than
+    // one of them being shredded against a cell the size of the world.
+    if (!a.children || (b.children && b.half >= a.half)) {
+      for (const child of b.children!) best = this.searchPair(a, child, G, best);
+    } else {
+      for (const child of a.children!) best = this.searchPair(child, b, G, best);
     }
 
     return best;
   }
 
-  private searchTimescale(node: QuadNode, index: number, G: number, best: number): number {
-    if (node.mass === 0) return best;
+  /**
+   * The most optimistic timescale any pair drawn from these two cells could
+   * have: their nearest approach, their heaviest members, their fastest.
+   *
+   * It has to stay a *lower* bound — an over-optimistic bound only wastes
+   * work, but a bound that is ever too high prunes away the answer. Nearest
+   * edge-to-edge distance rather than centre-to-centre, `maxMass` and
+   * `maxSpeed` rather than the cells' own totals, and the contact clamp left
+   * off, since clamping only ever raises the separation.
+   */
+  private pairBound(a: QuadNode, b: QuadNode, G: number): number {
+    const gap = this.distanceBetweenBoxes(a, b);
+    if (gap <= 0) return 0;
 
-    const body = this.bodies[index];
+    const dynamical = Math.sqrt(gap ** 3 / (G * (a.maxMass + b.maxMass)));
 
-    // The optimistic case for this whole cell: its nearest edge, its heaviest
-    // member, its fastest member. Nothing inside can do better than this.
-    const nearest = this.distanceToBox(node, body.x, body.y);
-    if (nearest > 0) {
-      const speed = Math.hypot(body.vx, body.vy) + node.maxSpeed;
-      const dynamical = Math.sqrt(nearest ** 3 / (G * (body.mass + node.maxMass)));
-      const crossing = speed > 0 ? nearest / speed : Infinity;
+    const speed = a.maxSpeed + b.maxSpeed;
+    const crossing = speed > 0 ? gap / speed : Infinity;
 
-      if (Math.min(dynamical, crossing) >= best) return best;
-    }
+    return Math.min(dynamical, crossing);
+  }
 
-    if (node.children) {
-      // Nearest child first. The bound is only as good as the best pair found
-      // so far, so descending towards the query point before wandering away
-      // from it is what makes the pruning bite.
-      const order = this.quadrantOf(node, index);
-      best = this.searchTimescale(node.children[order], index, G, best);
-
-      for (let i = 0; i < 4; i++) {
-        if (i === order) continue;
-        best = this.searchTimescale(node.children[i], index, G, best);
+  /** Every pair within one leaf. */
+  private scanLeaf(node: QuadNode, best: number, G: number): number {
+    for (let i = 0; i < node.bodies.length; i++) {
+      for (let j = i + 1; j < node.bodies.length; j++) {
+        best = Math.min(best, this.timescaleOf(node.bodies[i], node.bodies[j], G));
       }
-      return best;
     }
-
-    for (const other of node.bodies) {
-      // Each pair is examined from both ends, which costs a little and keeps
-      // the traversal simple; the answer is symmetric either way.
-      if (other === index) continue;
-
-      const partner = this.bodies[other];
-      const contact = body.radius + partner.radius;
-      const separation = Math.max(Math.hypot(partner.x - body.x, partner.y - body.y), contact);
-
-      const dynamical = Math.sqrt(separation ** 3 / (G * (body.mass + partner.mass)));
-      const relativeSpeed = Math.hypot(partner.vx - body.vx, partner.vy - body.vy);
-      const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
-
-      best = Math.min(best, dynamical, crossing);
-    }
-
     return best;
+  }
+
+  /** Every pair across two different leaves. */
+  private scanLeafPair(a: QuadNode, b: QuadNode, best: number, G: number): number {
+    for (const i of a.bodies) {
+      for (const j of b.bodies) {
+        best = Math.min(best, this.timescaleOf(i, j, G));
+      }
+    }
+    return best;
+  }
+
+  /**
+   * The step rule's timescale for one pair: the smaller of how fast their own
+   * gravity turns them and how long they stay at this separation. The same
+   * arithmetic as the pairwise scan in `integrators.ts`, which is what it is
+   * tested against.
+   */
+  private timescaleOf(i: number, j: number, G: number): number {
+    const a = this.bodies[i];
+    const b = this.bodies[j];
+
+    const contact = a.radius + b.radius;
+    const separation = Math.max(Math.hypot(b.x - a.x, b.y - a.y), contact);
+
+    const dynamical = Math.sqrt(separation ** 3 / (G * (a.mass + b.mass)));
+    const relativeSpeed = Math.hypot(b.vx - a.vx, b.vy - a.vy);
+    const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
+
+    return Math.min(dynamical, crossing);
+  }
+
+  /** Nearest distance between two nodes' squares, zero if they touch or overlap. */
+  private distanceBetweenBoxes(a: QuadNode, b: QuadNode): number {
+    const reach = a.half + b.half;
+    const dx = Math.max(Math.abs(a.cx - b.cx) - reach, 0);
+    const dy = Math.max(Math.abs(a.cy - b.cy) - reach, 0);
+    return Math.hypot(dx, dy);
   }
 
   /** Distance from a point to the node's square, zero if the point is inside. */

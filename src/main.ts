@@ -170,7 +170,12 @@ const sketch = (p: p5) => {
     } else {
       engine.step();
     }
-    engine.updateField(view);
+    // Only when it is going to be drawn. Sampling the field is the most
+    // expensive thing a frame does — on the galaxy preset it was 85% of a
+    // paused frame — and the galaxy is precisely the scene that ships with the
+    // overlay switched off because it cannot afford it. It was being paid for
+    // and thrown away.
+    if (renderer.showVectorField) engine.updateField(view);
 
     updateSubStepDisplay();
     updateLegend();

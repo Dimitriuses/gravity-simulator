@@ -169,20 +169,23 @@ the same browser: **30 fps with the tree, 12 fps forced onto the exact sum**.
 
 What limits it now, in order:
 
-- **Drawing.** Hundreds of bodies means hundreds of circles, and roughly half of
-  the galaxy's frame is spent drawing rather than simulating.
 - **The field is sample-bound.** It samples up to 12,000 points regardless of
   the body count, so it costs tens of milliseconds even in a small scene shown
-  at full range. The Galaxy preset turns it off for that reason; the cap was
-  chosen when the field was the only thing on screen.
-- **The adaptive step rule.** Its tree search returns exactly the pairwise
-  answer but prunes weakly, because what it is looking for is the shortest
-  timescale in the system and almost nothing can be excluded for being slower.
-  A dual-tree traversal is the next move.
+  at full range — and hundreds in a wide view of a large one. The Galaxy preset
+  turns it off for that reason; the cap was chosen when the field was the only
+  thing on screen. It is not sampled at all while the overlay is hidden, which
+  it used to be.
+- **The force evaluation**, once per sub-step. On the Galaxy preset with the
+  overlay off this is most of what is left, and the frame is capped by the
+  display rather than by the work.
+- **Drawing**, which is *not* the wall it was once assumed to be: profiling a
+  paused 211-body frame puts it at about 1.1 ms against 79% idle. Roadmap M7
+  proposed dropping the glow pass and the measurement argued against it.
 
 Turning off *Show Vector Field* still removes the single largest cost in most
-scenes. Full tables in [`SCALING.md`](SCALING.md); the remaining frame costs —
-the contour grid, the step rule and the drawing — are all roadmap M7.
+scenes, and now removes it completely rather than only hiding it. Full tables in
+[`SCALING.md`](SCALING.md); what is left of roadmap M7 is per-body time-stepping,
+which is a large change.
 
 ## Barnes-Hut gives up exact momentum conservation
 

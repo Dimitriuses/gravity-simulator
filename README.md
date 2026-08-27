@@ -225,7 +225,7 @@ before trusting a change.
 
 ```bash
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 244 unit tests, headless, ~18s
+npm test            # 246 unit tests, headless, ~18s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -244,7 +244,7 @@ confirm which schemes bound their energy error and which does not.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 82 properties, including that the background is the intended navy, that
+asserts 83 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -297,9 +297,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 - **Desktop only.** The controls need three mouse buttons, a wheel and Ctrl.
   The page runs on a phone but cannot be panned or zoomed.
 - **Hundreds of bodies, not thousands.** The quadtree took the frame from
-  O(n²); what limits it now is drawing, and a field that samples up to 12,000
-  points however few bodies there are. The 300-body Galaxy preset holds 30fps in
-  Chromium. [`SCALING.md`](SCALING.md) has the tables.
+  O(n²); what limits it now is the force evaluation and a field that samples up
+  to 12,000 points however few bodies there are. The 300-body Galaxy preset
+  holds the display's 60fps with the field overlay off, and single figures with
+  it on at full range. [`SCALING.md`](SCALING.md) has the tables.
 - **The tree is an approximation.** At the default opening angle its median
   force error is around 0.03–0.2%, and because it is not symmetric it gives up
   exact momentum conservation. The exact solver stays the default below 128

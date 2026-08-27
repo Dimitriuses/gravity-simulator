@@ -351,39 +351,76 @@ the curvature the step itself ignores — which is the adaptive step rule's job,
 and it already bounds it. Recorded in [`KNOWNISSUES.md`](KNOWNISSUES.md) as a
 property rather than tracked here as a task.
 
-## M7 — The costs that are left
+## M7 — The costs that are left — **mostly done**
 
-M3 took the two obvious quadratic costs out of the frame. What it left behind is
-smaller, harder, and only worth doing if scenes get bigger than the Galaxy
-preset — which is why this sits below the milestones that improve what the
+M3 took the two obvious quadratic costs out of the frame. What it left behind was
+smaller, harder, and only worth doing if scenes got bigger than the Galaxy
+preset — which is why this sat below the milestones that improve what the
 simulator *does*.
 
-Not all of it is superlinear any more: the contour grid below costs the same
-whatever the body count, and is on this list because it is the most expensive
-thing a frame can be asked for, not because it scales badly.
+Three of the four are done. The one that mattered most was not on the list at
+all: the frame's largest cost turned out to be a field nobody was looking at.
 
-- **A dual-tree step rule** — *medium*. The adaptive step rule's branch-and-bound
-  search returns exactly the pairwise answer but prunes weakly, because what it
-  looks for is the shortest timescale in the system and almost nothing can be
-  excluded for being slower than it. Comparing cells against cells rather than
-  bodies against cells would prune far better. 3.5x today, where the other three
-  tree-backed searches got 7x to 16x.
-- **Per-body or block time-stepping** — *large*. Sub-stepping is global: one
-  tight pair subdivides the step for every body in the scene, including bodies
-  nowhere near it. Confining the cost to the bodies that earn it is the standard
+- ~~A dual-tree step rule~~ — **done**. The adaptive step rule's
+  branch-and-bound search returned exactly the pairwise answer but pruned
+  weakly, because what it looks for is the shortest timescale in the system and
+  almost nothing can be excluded for being slower than it. It now compares
+  *cells against cells*: one bound test rejects a whole block of pairs, where
+  the old traversal rejected one body's share of them and had to re-derive the
+  bound for the next body. The search went from 67.1 ms to 34.0 at two thousand
+  bodies, and the win over the pairwise scan from 3.5x to **8.2x** — into the
+  range the other three tree-backed searches were already in.
+
+  The bound is the same idea in a new shape and is easy to get subtly wrong: it
+  must stay a *lower* bound on the timescale any pair the two cells could hold
+  might have, so it uses nearest edge-to-edge distance, each cell's heaviest and
+  fastest member, and leaves the contact clamp off. Too optimistic only wastes
+  work; too high prunes away the answer. Pinned against the pairwise scan on six
+  scene shapes — sparse, clustered, astride a cell boundary, a fast flyby,
+  coincident bodies, and a single pair — comparing the timescale itself rather
+  than the integer sub-step count it feeds, which is coarse enough to round a
+  wrong answer back onto the right one.
+- **Per-body or block time-stepping** — *large*, and the one item here **still
+  open**. Sub-stepping is global: one tight pair subdivides the step for every
+  body in the scene, including bodies nowhere near it. Confining the cost to the bodies that earn it is the standard
   answer and a substantial change — bodies would sit at different times, so
   force evaluation needs positions extrapolated to a common one, and the
   integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming they do
   not.
-- **The contour grid does not thin out** — *medium*. Every grid corner is a tree
-  query and the resolution is fixed, so contours cost 25.8 ms at 300 bodies
-  against 13.8 for streamlines — the most expensive mode by some way. The same
-  trick the arrow grid already uses would work: subdivide where the potential is
-  actually curving and leave the flat ground coarse.
-- **Drawing** — *medium*. Roughly half of the Galaxy preset's frame is spent
-  drawing rather than simulating. Batching by layer took 400 bodies from 83 ms
-  to 22 ms; the glow pass is the next thing to go, and beyond that the honest
-  answer is that p5's immediate-mode canvas is the ceiling.
+- ~~The contour grid does not thin out~~ — **done**, and the grid was the
+  smaller half of the problem. It does now thin out: a coarse pass samples every
+  other lattice point, and only the cells whose corners straddle a level are
+  filled in at full resolution — 4,100 evaluations where there were 5,278, which
+  is close to the ceiling, since on a gravitational potential with twelve
+  geometric levels 43% of cells genuinely have a line through them.
+
+  The larger half was the *marching*. It walked all 5,130 cells once per level
+  and threw away 98% of the answers: twelve passes to draw twelve lines. It now
+  walks once and, for each cell, binary-searches the contiguous run of levels
+  that cell's own corners straddle — usually none. A two-body trace went from
+  4.62 ms of marching to 2.59, and the mode as a whole from 24.3 ms to 17.8 at
+  three hundred bodies and 7.05 ms to 2.95 on a small scene, drawing the same
+  lines.
+
+  Refining only where the readings ask for it is blind to structure smaller than
+  its first cell — the same trap the gradient arrow mode fell into — so the
+  tracer takes an optional list of points to refine around, and `VectorField`
+  passes the bodies. It is still given points rather than particles, so
+  `contours.ts` still knows nothing about gravity.
+- ~~Drawing~~ — **measured, and left alone.** The claim this entry rested on —
+  half the Galaxy frame spent drawing — was false by the time it was tested.
+  Profiling a paused frame put **85%** of it in field sampling, on the one scene
+  that ships with the field overlay switched off because it cannot afford it:
+  `updateField()` ran every frame whether or not anything would draw the result.
+  Skipping it when the overlay is hidden took the preset from 29 ms a frame to
+  16.9, which is the vsync interval — capped by the display rather than the
+  work. A smoke check pins it, written so that a machine fast enough to hold
+  60fps either way cannot hide the regression.
+
+  Drawing itself, measured the same way, is about **1.1 ms** of a 211-body frame
+  against 79% idle. The glow pass this entry proposed removing is roughly half
+  of that, and removing it would change the picture to win half a millisecond in
+  a frame with thirteen to spare. It stays.
 
 ## M8 — Checking it against reality
 

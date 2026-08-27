@@ -52,7 +52,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 244 tests run under Node in about eighteen
+plain TypeScript, which is why 246 tests run under Node in about eighteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -210,6 +210,17 @@ pairwise scans give. Those bounds must stay *upper* bounds on what a cell can
 hold, or the pruning starts skipping the answer. Both are pinned against their
 scans.
 
+The step-size search walks **cell against cell**, not body against tree, which
+is what took its win over the pairwise scan from 3.5x to 8.2x: one bound test
+rejects a whole block of pairs. What it compares is a *lower* bound on the
+timescale any pair drawn from the two cells could have — nearest edge-to-edge
+distance, each cell's heaviest and fastest member, contact clamp left off, since
+clamping only raises the separation. Too optimistic merely wastes work; too high
+loses the answer. A cell against *itself* cannot be pruned at all, since two
+bodies inside it may be touching, so it splits into its children against
+themselves and each distinct pair of them — which is also what counts every pair
+exactly once.
+
 ### Barnes-Hut is not symmetric, so it does not conserve momentum
 
 The pairwise sum applies equal and opposite forces, so total momentum is exact.
@@ -279,6 +290,21 @@ in the legend in `index.html`. If you change one, change both.
 `push()`/`pop()` save and restore colour mode, so a scoped switch is safe — but
 a bare `colorMode()` call leaks to every later draw call in the frame.
 
+### The field is sampled only if it is going to be drawn
+
+`main`'s frame loop calls `engine.updateField()` behind `renderer.showVectorField`.
+It used to call it unconditionally, so the Galaxy preset — the one scene that
+ships with the overlay *off*, because it cannot afford it — paid for 12,000
+samples a frame and drew none of them. Profiled, that was **85%** of a paused
+frame; skipping it took the preset from 29 ms a frame to 16.9, which is the
+vsync interval.
+
+Pinned by `tools/smoketest.mjs` -> *"hiding the vector field stops it being
+sampled"*, which is written as `hidden <= 17.5ms || shown - hidden >= 5ms`
+rather than as an fps threshold: on a machine fast enough to hold 60fps either
+way both readings sit at the vsync interval and a straight comparison would
+prove nothing.
+
 ### The contour and streamline tracers take a function, not a simulation
 
 Neither `contours.ts` nor `streamlines.ts` imports anything about gravity: one
@@ -288,6 +314,31 @@ whose radius you can write down and a rotating field's streamlines are circles
 about the origin, so both tracers are checked against answers known in closed
 form. On a gravitational potential nobody can see the right answer by eye, and
 the tests would degrade into "it drew something".
+
+### The contour grid refines where a level crosses, and marches once
+
+Two separate economies, and it is worth knowing which is which. The **grid**
+samples every other lattice point first and fills in the rest only for cells
+whose corners straddle a level; the saving is modest by nature, since 43% of
+cells on a real potential do have a line through them. The **marching** is where
+the time was: it used to walk every cell once per level, twelve passes to draw
+twelve lines, and now walks once and binary-searches the run of levels a cell's
+own corners straddle. Contours went from the most expensive field mode to the
+middle of the pack.
+
+Points on the lattice are addressed by integer index and evaluated once, which
+is what keeps the lines continuous across a refinement boundary: two cells
+sharing an edge interpolate it from the same two numbers. A cell that straddles
+no level draws nothing, so it cannot leave a gap by being left coarse — and any
+cell sharing a crossed edge straddles that level too, by definition, so it is
+refined as well.
+
+Refinement that only follows the readings is blind to structure smaller than its
+first cell — see the entry below, which is the same trap. `traceContours` takes
+an optional list of points to refine around and `VectorField` passes the body
+positions. *Points*, not particles: the tracer still knows nothing about
+gravity. Forcing a patch of samples around every body instead cost more at three
+hundred bodies than the thinning saved.
 
 ### Gradient refinement is blind to what is smaller than its first cell
 

@@ -272,6 +272,124 @@ describe('contact queries', () => {
   });
 });
 
+describe('the step rule search', () => {
+  /** The pairwise minimum the tree has to reproduce, to the last bit. */
+  function scanShortest(particles: Particle[]): number {
+    let shortest = Infinity;
+
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const a = particles[i];
+        const b = particles[j];
+
+        const contact = a.radius + b.radius;
+        const separation = Math.max(b.position.sub(a.position).magnitude(), contact);
+
+        const dynamical = Math.sqrt(separation ** 3 / (SIMULATION_G * (a.mass + b.mass)));
+        const relativeSpeed = b.velocity.sub(a.velocity).magnitude();
+        const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
+
+        shortest = Math.min(shortest, dynamical, crossing);
+      }
+    }
+
+    return shortest;
+  }
+
+  it('returns the pairwise answer exactly, over scenes of every shape', () => {
+    // The traversal compares cells against cells, and prunes a cell pair when
+    // the most optimistic pair it could hold is still slower than the best
+    // found so far. A bound that is ever too *high* prunes away the answer, and
+    // the sub-step count it feeds is an integer — coarse enough to round a
+    // wrong timescale back onto the right answer and look fine. So the
+    // timescale itself is compared, not the count.
+    const random = seeded(4242);
+    const scenes: Array<{ name: string; particles: Particle[] }> = [];
+
+    // Spread out: nothing is close to anything, so almost every pair prunes.
+    scenes.push({
+      name: 'sparse',
+      particles: Array.from({ length: 120 }, () =>
+        new Particle(
+          (random() - 0.5) * 8000,
+          (random() - 0.5) * 8000,
+          20 + random() * 900,
+          (random() - 0.5) * 6,
+          (random() - 0.5) * 6
+        )
+      ),
+    });
+
+    // Clustered: the answer is inside one cell, which is the case a bound
+    // taken from cell centres rather than cell edges gets wrong.
+    const clustered: Particle[] = [];
+    for (let cluster = 0; cluster < 6; cluster++) {
+      const cx = (random() - 0.5) * 6000;
+      const cy = (random() - 0.5) * 6000;
+      for (let i = 0; i < 25; i++) {
+        clustered.push(
+          new Particle(
+            cx + (random() - 0.5) * 40,
+            cy + (random() - 0.5) * 40,
+            20 + random() * 400,
+            (random() - 0.5) * 3,
+            (random() - 0.5) * 3
+          )
+        );
+      }
+    }
+    scenes.push({ name: 'clustered', particles: clustered });
+
+    // The closest pair split across the root's own quadrant boundary, which is
+    // the one place a self-cell recursion could lose it.
+    scenes.push({
+      name: 'astride the axis',
+      particles: [
+        new Particle(-0.5, 0, 100, 0, 1),
+        new Particle(0.5, 0, 100, 0, -1),
+        new Particle(-3000, -3000, 900, 0, 0),
+        new Particle(3000, 3000, 900, 0, 0),
+      ],
+    });
+
+    // A fast flyby, where the crossing time wins and the dynamical time does
+    // not, so a bound that only considered gravity would prune it away.
+    scenes.push({
+      name: 'flyby',
+      particles: [
+        new Particle(0, 0, 5000, 0, 0),
+        new Particle(-400, 0, 50, 300, 0),
+        new Particle(2000, 2000, 50, 0, 0),
+      ],
+    });
+
+    // Bodies on top of each other: separation clamps to contact distance, and
+    // the cells' optimistic separation is zero, so nothing can prune at all.
+    scenes.push({
+      name: 'coincident',
+      particles: [new Particle(0, 0, 100), new Particle(0, 0, 100), new Particle(9, 0, 100)],
+    });
+
+    // Two bodies, which is the whole tree being one leaf.
+    scenes.push({
+      name: 'a pair',
+      particles: [new Particle(0, 0, 100, 0, 0), new Particle(120, 0, 300, 0, 2)],
+    });
+
+    for (const { name, particles } of scenes) {
+      const searched = treeOf(particles).shortestInteractionTime(SIMULATION_G);
+      expect(searched, name).toBeCloseTo(scanShortest(particles), 9);
+    }
+  });
+
+  it('finds nothing to report in a system with no pairs', () => {
+    expect(treeOf([]).shortestInteractionTime(SIMULATION_G)).toBe(Infinity);
+    expect(
+      treeOf([new Particle(0, 0, 100)]).shortestInteractionTime(SIMULATION_G)
+    ).toBe(Infinity);
+  });
+});
+
 describe('trial configurations', () => {
   it('builds over positions the bodies are not actually at', () => {
     // RK4 evaluates the field at three trial configurations per step, so the
