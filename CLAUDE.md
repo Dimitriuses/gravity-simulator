@@ -10,6 +10,7 @@ entry in it corresponds to a bug that actually shipped.
 | Command | What it does |
 |---|---|
 | `npm run dev` | Vite dev server on :3000, opens a browser. **Does not typecheck.** |
+| `npm run lint` | ESLint over `src`, `tests`, `tools` and the config files |
 | `npm run typecheck` | `tsc --noEmit` over `src`, `tests` and `vite.config.ts` |
 | `npm test` | Vitest, headless, no DOM — the whole simulation core |
 | `npm run test:watch` | the same in watch mode |
@@ -46,6 +47,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── serialization  scenes as text, for saving and for the URL fragment
   ├── contours       marching squares over any scalar field
   ├── scalebar       the round number the canvas ruler measures
+  ├── styles.css     the page's styling, bundled from index.html's <link>
   ├── units          simulation units <-> SI, for measuring against reality
   │     └── ephemeris   the planets at J2000, and orbits read back out of a state
   ├── streamlines    evenly spaced curves through any vector field
@@ -55,7 +57,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 259 tests run under Node in about nineteen
+plain TypeScript, which is why 268 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -552,6 +554,49 @@ in HTML would be the duplication the rule exists to prevent. `syncStateFromContr
 still reads the selection and loads it, which is how the page gets its opening
 scene — there is no hard-coded startup configuration any more.
 
+### Following a body is shift-click, because a plain click places one
+
+Every canvas gesture here is competing with "place a body". Double-click was the
+obvious way to pick one up and is unusable: p5 delivers two complete clicks
+before `doubleClicked`, so the gesture placed two bodies on the same spot and
+then followed one of them — which in the default merge mode absorbed the other
+and released the camera immediately. The smoke test caught it on the first run,
+reporting the status line as *"The followed body was absorbed"*.
+
+`Esc` releases, and so does the followed body being absorbed. That second case
+has to say something (`#followStatus`), because a camera that silently stopped
+following is indistinguishable from one that drifted.
+
+`Camera.centerOn` cancels any pan in progress. A drag and a followed body both
+want to set the camera, and letting the follow win silently leaves the pointer
+dragging a view that does not move, which reads as the app having frozen.
+
+### The debug overlay is computed only while it is up, and only four times a second
+
+`PhysicsEngine.diagnostics()` sums the potential over every *pair*, which is the
+cost Barnes-Hut exists to avoid, so `main` calls it behind `debugVisible` and no
+more than every `DEBUG_REFRESH_MS`. The same rule as the vector field: if
+nothing is going to read it, do not compute it.
+
+Drift is measured from the moment the overlay was opened, not from the start of
+the scene — a scene that has been merging bodies has lost kinetic energy
+legitimately, and that swamps whatever the viewer is actually looking at.
+
+`keyPressed` ignores events whose target is an `input`, `select` or
+`textarea`. p5 listens on `window`, so without that guard the arrow keys on a
+range slider — and in some browsers its letter keys — toggle the overlay.
+
+### Styles live in `src/styles.css`, values live in `index.html`
+
+The stylesheet was lifted out of the document once it passed a screenful; the
+markup stayed, because `syncStateFromControls()` reads the sliders' `value`
+attributes as the simulation's starting values. Moving the controls into
+JavaScript would recreate the exact drift that rule exists to prevent.
+
+The control panel's action row is `position: sticky` inside the scrolling
+panel. When testing that kind of layout claim, do not scroll the panel first:
+the first version of the smoke check did, and passed with the fix removed.
+
 ### A click belongs to the canvas only if its `target` is the canvas
 
 p5 listens on `window`, so every mouse event in the page reaches `mousePressed`,
@@ -627,6 +672,10 @@ npm, and npm 11 will happily reinstall from a lockfile that npm 10 rejects. See
 the header comment in `tools/verify-install.mjs`.
 
 ## Dependency notes
+
+`eslint` and `@eslint/js` must move together — `@eslint/js@10` declares a peer
+of `eslint@^10`, so installing the two at different majors is an `ERESOLVE`
+failure rather than a warning. `typescript-eslint@8` accepts either.
 
 `vite` is pinned to `^7` deliberately. `vitest` 4 requires vite `^6 || ^7 || ^8`;
 against an older pin, npm resolves the conflict by nesting a second copy of vite

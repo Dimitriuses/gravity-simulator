@@ -462,19 +462,57 @@ caveats in [`EPHEMERIS.md`](EPHEMERIS.md); what it settled:
 would be a different program rather than a bigger one, and the 2D result is
 worth more with its error stated than a 3D result would be worth unstated.
 
-## M9 — Housekeeping
+## M9 — Housekeeping — **done**
 
-- **No linter** — *small*. TypeScript's `strict` plus `noUnusedLocals` has caught
-  everything so far, but ESLint should go in before the codebase grows further.
-  It has grown a good deal since this was first written.
-- **`index.html` carries its styles and markup inline** — *small*. Fine at this
-  size; it should be split now that the control panel has four sections and the
-  stylesheet has grown past a screenful.
-- **The panels do not reflow** — *small*. Folding the control panel's sections
-  (M11) bought enough room that nothing collides, but that is an arrangement
-  that happens to fit rather than a layout: open all three sections in an 800px
-  window and Clear All and Pause still go past the fold. A real answer is a
-  panel that reflows, or one that scrolls its sections independently.
+Three chores, plus two things the simulator turned out to be missing that are
+not chores at all: a way to keep the camera on something that is moving, and a
+way to see what the solver is doing.
+
+- ~~No linter.~~ **Done.** ESLint 10 with typescript-eslint, in CI ahead of the
+  typecheck. Deliberately not a style police — there is no formatter in this
+  project and adding one would rewrite every file — so what is turned on is the
+  handful of rules that catch *mistakes a type checker cannot see*: `eqeqeq`,
+  `no-fallthrough`, no `any`, unused parameters, an unawaited promise. Three
+  environments, because they really are different: browser TypeScript in `src/`,
+  Node TypeScript in `tests/`, plain Node ESM in `tools/` — with the smoke test
+  a special case, since its `page.evaluate` callbacks run in the browser and
+  both sets of globals are in scope in the one file.
+
+  It found exactly one thing across the whole codebase, a `let` that should have
+  been a `const`, written earlier the same day. That is the honest result:
+  `strict` plus `noUnusedLocals` really had been carrying it, and the linter's
+  value from here is what it catches next year rather than what it caught today.
+- ~~`index.html` carries its styles and markup inline.~~ **Done for the styles**,
+  which were the part that had grown past a screenful: 120 lines of them now
+  live in [`src/styles.css`](src/styles.css), bundled from a `<link>`, and the
+  inline `style=` attributes are down from 37 to 21 as the repeated ones became
+  classes. The markup stays in the document on purpose — the sliders in it are
+  the single source of truth for the simulation's starting values, and moving
+  them into JavaScript would recreate exactly the drift that rule exists to
+  prevent.
+- ~~The panels do not reflow.~~ **Done.** The action row is `position: sticky`
+  inside the scrolling panel, so Clear All and Pause stay put however far down
+  it is scrolled, and a `max-height: 820px` media query tightens the panel's
+  spacing before it gives up any content. Below 620px wide the panels cap at
+  45vw and the sliders go full-width. The smoke test opens all three sections at
+  800px of viewport height and checks the buttons are reachable *without*
+  scrolling — the first version of that check scrolled the panel first and
+  passed with the fix removed, which is worth remembering about layout tests.
+- ~~**Follow a moving body.**~~ **Done**, and it is shift-click rather than the
+  double-click it started as. That is not a style choice: a plain click places a
+  body, so a double-click places two and then asks the camera to follow one of
+  them — which, in merge mode, promptly absorbed the other and released the
+  camera again. There is no gesture here that a click is not already the first
+  half of. `Esc` releases, and so does a body being absorbed, which says so in
+  the status line rather than just letting go.
+- ~~**A debug readout.**~~ **Done**, on `D`: frame rate, bodies, sub-steps,
+  solver, field mode, contacts, and the drift in energy, momentum and angular
+  momentum since the overlay was opened. Drift *since it opened* rather than
+  since the scene began, because a scene that has been merging bodies for a
+  minute has lost energy legitimately and that would swamp the reading. It
+  recomputes four times a second and only while it is up: the numbers come from
+  a full O(n²) pass, the one cost the tree exists to avoid, and this is the same
+  lesson as the field overlay in M7.
 - ~~The UI panels overlap each other in a small window.~~ **Done.** The overlap
   was vertical, not horizontal: the control panel is capped at
   `calc(100vh - 210px)` and `border-box`, so it scrolls internally instead of

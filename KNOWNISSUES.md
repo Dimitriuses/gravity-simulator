@@ -219,6 +219,18 @@ Newtonian is not a defect either. The 43″ per century that general relativity
 contributes to that same number is the one thing this cannot produce, and a
 Newtonian simulation that produced it would have a bug.
 
+## The debug overlay costs a full pairwise pass
+
+`D` shows energy, momentum and angular momentum, and the potential term in the
+first of those is a sum over every *pair* — the one cost Barnes-Hut exists to
+avoid. It is computed four times a second and only while the overlay is up, so a
+scene of a few hundred bodies pays for it about as often as it can be read; at a
+few thousand, leaving the overlay open is measurably slower than not.
+
+The drift figures are relative to the moment the overlay was opened, not to the
+start of the scene. A scene that has been merging bodies has lost kinetic energy
+legitimately, and that swamps everything else if it is counted.
+
 ## Barnes-Hut gives up exact momentum conservation
 
 The approximation is not symmetric: body A may be close enough to see B
@@ -262,9 +274,15 @@ event in the page before deciding whether it was over the canvas.)
 Every control added to the panel raises that threshold, which is the cost of a
 single column. Render Settings, Camera and Physics are therefore `<details>`
 closed by default, which took the panel from 584px to 455px and the threshold
-from 776px down to 665px; the smoke test measures both at boot. Opening all
-three at once still pushes Clear All and Pause past the fold in an 800px window.
-Roadmap M9.
+from 776px down to 665px; the smoke test measures both at boot.
+
+Opening all three at once still makes the panel taller than the space it has,
+but that no longer hides anything: the action row is sticky inside it, so Clear
+All and Pause sit at the bottom edge whatever the scroll position, and a short
+window tightens the panel's spacing rather than its contents. What is still
+true is that a single column is a single column — a fourth section would push
+the *middle* of the panel out of view, and the answer to that is a second column
+rather than more folding.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

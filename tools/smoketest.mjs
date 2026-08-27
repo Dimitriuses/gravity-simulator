@@ -1071,6 +1071,148 @@ try {
   await page.click('#clearBtn');
   await page.waitForTimeout(200);
 
+  // ── Following a body, and the debug overlay ────────────────────────────────
+  // Both are canvas-only: one moves the camera, the other draws in screen
+  // space, and neither leaves a trace in the DOM beyond a status line.
+  {
+    /** Body-coloured pixels inside a box `half` wide about the canvas centre. */
+    const litAtCentre = (data, width, height, half) => {
+      let n = 0;
+      const scale = width / window.innerWidth || 1;
+      const cx = width / 2;
+      const cy = height / 2;
+      const reach = half * scale;
+
+      for (let y = Math.round(cy - reach); y < cy + reach; y++) {
+        for (let x = Math.round(cx - reach); x < cx + reach; x++) {
+          const i = (y * width + x) * 4;
+          if (data[i] > 100 && data[i + 1] > 150 && data[i + 2] > 200) n++;
+        }
+      }
+      return n;
+    };
+
+    await page.selectOption('#presetSelect', 'binary');
+    await page.waitForTimeout(700);
+    // Only the bodies, so the count means what it says: trails are nearly the
+    // same colour, and the field would fill the middle with arrows.
+    await page.uncheck('#showTrails');
+    await page.uncheck('#showVectors');
+    await page.uncheck('#showParticleVectors');
+    await page.waitForTimeout(400);
+
+    // Two bodies about a common centre: the middle of the view is the
+    // barycentre, and nothing is there.
+    const emptyCentre = await onCanvas(litAtCentre, 40);
+    check(
+      'the centre of the binary scene is empty before following anything',
+      emptyCentre < 30,
+      `${emptyCentre} body pixels`
+    );
+
+    // One of the pair, half its orbit out from the centre.
+    const box = await page.evaluate(() => {
+      const canvas = document.querySelector('canvas');
+      return { w: canvas.clientWidth, h: canvas.clientHeight };
+    });
+    await page.keyboard.down('Shift');
+    await page.mouse.click(box.w / 2 + 200, box.h / 2);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(200);
+
+    const bodiesAfterPick = await page.textContent('#objectCount');
+    check(
+      'shift-clicking a body follows it instead of placing one',
+      bodiesAfterPick === '2',
+      `objectCount=${bodiesAfterPick}`
+    );
+
+    const status = await page.textContent('#followStatus');
+    check(
+      'and says which body the camera has',
+      /Following a \d+-mass body/.test(status ?? ''),
+      `status="${status}"`
+    );
+
+    // The point of it: the body stays in the middle while it goes round. Two
+    // readings a second apart, which is a good fraction of this orbit.
+    const held = await onCanvas(litAtCentre, 40);
+    await page.waitForTimeout(1000);
+    const stillHeld = await onCanvas(litAtCentre, 40);
+
+    check(
+      'and the camera holds it in the middle of the view as it orbits',
+      held > 100 && stillHeld > 100,
+      `${held} then ${stillHeld} body pixels at the centre, against ${emptyCentre} before`
+    );
+
+    // Six seconds is about a third of this pair's orbit, and the bodies are 40
+    // pixels across: a shorter wait leaves the one just released still
+    // overlapping the box it was pinned in, which is a weak thing to assert.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(6000);
+    const released = await onCanvas(litAtCentre, 40);
+    const releasedStatus = await page.textContent('#followStatus');
+
+    check(
+      'escape lets go, and the body drifts out of the middle again',
+      released < held / 4 && !/Following/.test(releasedStatus ?? ''),
+      `${released} body pixels, was ${held}; status="${releasedStatus}"`
+    );
+
+    // The overlay is drawn in screen space in the top right, where nothing else
+    // is: its own panel colour makes it easy to count without reading it.
+    const overlayPixels = (data, width, height) => {
+      let n = 0;
+      for (let y = 0; y < Math.min(240, height); y++) {
+        for (let x = Math.max(0, width - 300); x < width; x++) {
+          const i = (y * width + x) * 4;
+          if (
+            Math.abs(data[i] - 190) <= 40 &&
+            Math.abs(data[i + 1] - 210) <= 40 &&
+            Math.abs(data[i + 2] - 240) <= 40
+          ) {
+            n++;
+          }
+        }
+      }
+      return n;
+    };
+
+    const before = await onCanvas(overlayPixels);
+    await page.keyboard.press('d');
+    await page.waitForTimeout(500);
+    const after = await onCanvas(overlayPixels);
+
+    check(
+      'D raises the debug overlay',
+      after > before + 300,
+      `${after} overlay pixels, was ${before}`
+    );
+
+    await page.keyboard.press('d');
+    await page.waitForTimeout(400);
+    const gone = await onCanvas(overlayPixels);
+    check('and D again puts it away', gone <= before + 100, `${gone} overlay pixels`);
+
+    // Typing into a control must not reach the canvas: p5 listens on the
+    // window, so without a guard the arrow keys on a slider would toggle it.
+    await page.focus('#massSlider');
+    await page.keyboard.press('d');
+    await page.waitForTimeout(400);
+    const afterTyping = await onCanvas(overlayPixels);
+    check(
+      'but a keystroke aimed at a control does not',
+      afterTyping <= before + 100,
+      `${afterTyping} overlay pixels`
+    );
+
+    await page.check('#showTrails');
+    await page.check('#showVectors');
+    await page.check('#showParticleVectors');
+    await page.waitForTimeout(300);
+  }
+
   // ── Panel layout in a short window ─────────────────────────────────────────
   // #controls is capped at calc(100vh - 210px) so it can never grow down into
   // the bottom-left info panel. The cap applies to the content box, so under
@@ -1095,6 +1237,41 @@ try {
     panelGap >= 0,
     `gap=${panelGap}px at ${VIEWPORT.width}x620`
   );
+  // The other half of a small window: every section open at once, which is the
+  // arrangement that used to push Clear All and Pause below the fold. The
+  // action row is sticky inside the scrolling panel now, so it stays put
+  // however far down the panel is scrolled.
+  await page.setViewportSize({ width: VIEWPORT.width, height: 800 });
+  await page.waitForTimeout(200);
+  for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+    await page.evaluate((section) => {
+      const details = document.getElementById(section);
+      if (details) details.open = true;
+    }, id);
+  }
+  // Deliberately *not* scrolled: reaching the buttons by scrolling is what the
+  // panel already did, and what the roadmap entry complained about.
+  await page.evaluate(() => {
+    document.getElementById('controls').scrollTop = 0;
+  });
+  await page.waitForTimeout(300);
+
+  const actions = await page.evaluate(() => {
+    const clear = document.getElementById('clearBtn').getBoundingClientRect();
+    const panel = document.getElementById('controls').getBoundingClientRect();
+    return {
+      pastPanel: Math.round(clear.bottom - panel.bottom),
+      pastViewport: Math.round(clear.bottom - window.innerHeight),
+      scrolled: Math.round(panel.height - document.getElementById('controls').scrollHeight),
+    };
+  });
+  check(
+    'the action buttons stay in view with every section open, unscrolled',
+    actions.pastPanel <= 1 && actions.pastViewport <= 0,
+    `Clear All ends ${actions.pastPanel}px past the panel and ${actions.pastViewport}px past the fold, ` +
+      `in a panel ${-actions.scrolled}px shorter than its contents`
+  );
+
   await page.setViewportSize(VIEWPORT);
   await page.waitForTimeout(200);
 

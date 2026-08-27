@@ -96,6 +96,20 @@ export class Camera {
   }
 
   /**
+   * Put a world point at the centre of the screen.
+   *
+   * `x` and `y` *are* the world point the middle of the canvas shows, so
+   * following a body is nothing more than assigning its position here every
+   * frame. Panning is cancelled: a drag that is fighting a body being followed
+   * would jitter, and letting the follow win silently is worse than ending it.
+   */
+  centerOn(x: number, y: number): void {
+    this.isPanning = false;
+    this.x = x;
+    this.y = y;
+  }
+
+  /**
    * Start panning
    */
   startPan(mouseX: number, mouseY: number): void {

@@ -298,3 +298,106 @@ describe('choosing between the exact sum and the tree', () => {
     expect(worst).toBeLessThan(0.05);
   });
 });
+
+describe('diagnostics', () => {
+  /**
+   * The overlay's numbers, and the only reason they are worth having: a scheme
+   * in trouble says so here long before the picture looks wrong. They are
+   * checked against closed forms rather than against themselves.
+   */
+  it('reports the energy of a two-body system as the textbook does', () => {
+    const engine = new PhysicsEngine(30);
+    const separation = 400;
+    const a = new Particle(0, 0, 1000);
+    const b = new Particle(separation, 0, 500, 0, 1.2);
+    engine.addParticle(a);
+    engine.addParticle(b);
+
+    const { kinetic, potential, energy } = engine.diagnostics();
+
+    expect(kinetic).toBeCloseTo(0.5 * 500 * 1.2 ** 2, 12);
+    expect(potential).toBeCloseTo(-(SIMULATION_G * 1000 * 500) / separation, 12);
+    expect(energy).toBeCloseTo(kinetic + potential, 12);
+  });
+
+  it('softens the potential exactly where the force law softens', () => {
+    // Two bodies inside each other would otherwise report an energy heading
+    // for minus infinity, and the overlay would show a drift of thousands of
+    // percent for a contact that conserved everything it was supposed to.
+    const engine = new PhysicsEngine(30);
+    const a = new Particle(0, 0, 1000);
+    const b = new Particle(0, 0, 1000);
+    engine.addParticle(a);
+    engine.addParticle(b);
+
+    const { potential } = engine.diagnostics();
+
+    expect(Number.isFinite(potential)).toBe(true);
+    expect(potential).toBeCloseTo(-(SIMULATION_G * 1000 * 1000) / (a.radius + b.radius), 12);
+  });
+
+  it('sums momentum as a vector, and angular momentum about the origin', () => {
+    const engine = new PhysicsEngine(30);
+    engine.addParticle(new Particle(0, 100, 200, 3, 0));
+    engine.addParticle(new Particle(0, -100, 200, -3, 0));
+
+    const { momentum, angularMomentum } = engine.diagnostics();
+
+    // Equal and opposite: no net momentum, but plenty of spin about the origin.
+    expect(momentum.x).toBeCloseTo(0, 12);
+    expect(momentum.y).toBeCloseTo(0, 12);
+    expect(angularMomentum).toBeCloseTo(2 * 200 * (0 * 0 - 100 * 3), 12);
+  });
+
+  it('holds energy and angular momentum through a long orbit', () => {
+    // The property the overlay exists to show, on a case where the answer is
+    // known: a closed orbit gives nothing up.
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    const primary = new Particle(0, 0, 5000);
+    const radius = 300;
+    const speed = Math.sqrt((SIMULATION_G * 5000) / radius);
+    engine.addParticle(primary);
+    engine.addParticle(new Particle(radius, 0, 1, 0, speed));
+
+    const before = engine.diagnostics();
+    for (let i = 0; i < 4000; i++) engine.step();
+    const after = engine.diagnostics();
+
+    expect(Math.abs((after.energy - before.energy) / before.energy)).toBeLessThan(1e-3);
+    expect(
+      Math.abs((after.angularMomentum - before.angularMomentum) / before.angularMomentum)
+    ).toBeLessThan(1e-6);
+  });
+});
+
+describe('diagnostics on a balanced scene', () => {
+  it('reports how much momentum is present, not just the net', () => {
+    // Every preset is built momentum-balanced, so the net is zero and a drift
+    // measured against it is a division by nothing. The scale is what the
+    // overlay divides by instead: how much there is to lose.
+    const engine = new PhysicsEngine(30);
+    engine.addParticle(new Particle(0, 100, 200, 4, 0));
+    engine.addParticle(new Particle(0, -100, 200, -4, 0));
+
+    const { momentum, momentumScale, angularMomentum, angularScale } = engine.diagnostics();
+
+    expect(momentum.magnitude()).toBeCloseTo(0, 12);
+    expect(momentumScale).toBeCloseTo(2 * 200 * 4, 12);
+
+    // The two bodies orbit the same way, so this pair's angular momentum does
+    // not cancel — but the scale is still the sum of magnitudes.
+    expect(angularScale).toBeGreaterThanOrEqual(Math.abs(angularMomentum));
+  });
+
+  it('counts angular scale even when the total cancels exactly', () => {
+    const engine = new PhysicsEngine(30);
+    engine.addParticle(new Particle(0, 100, 200, 4, 0));
+    engine.addParticle(new Particle(0, -100, 200, 4, 0));
+
+    const { angularMomentum, angularScale } = engine.diagnostics();
+
+    expect(angularMomentum).toBeCloseTo(0, 12);
+    expect(angularScale).toBeCloseTo(2 * 200 * 100 * 4, 12);
+  });
+});

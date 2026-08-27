@@ -4,127 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gravity Simulator</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-    }
-    #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-      z-index: 1000;
-      pointer-events: auto;
-      /* The info panel is anchored to the bottom of the viewport and is capped
-         at 180px tall. Capping this one to the remaining space keeps the two
-         from overlapping in a short window — they used to collide below about
-         640px of viewport height. On a normal screen this is far larger than
-         the panel's natural ~520px, so nothing moves.
-
-         box-sizing matters here: max-height applies to the *content* box, so
-         under the default content-box the 15px of padding above and below sat
-         outside the cap and the panel still reached 30px lower than intended —
-         enough to overlap the info panel by 15px once the particle list filled
-         it out. Both panels are border-box so the 210px budget below is the
-         whole of what they occupy: 180 + 10 + 10 + 10. */
-      box-sizing: border-box;
-      max-height: calc(100vh - 210px);
-      overflow-y: auto;
-    }
-    #controls h3 {
-      margin: 0 0 6px 0;
-      font-size: 16px;
-    }
-    #controls label {
-      display: block;
-      margin: 5px 0;
-      font-size: 12px;
-    }
-    /* Section headings. The panel is a single column and every control added to
-       it pushes the buttons at the bottom closer to the fold, so the rhythm is
-       deliberately tight — see the note in KNOWNISSUES.md. */
-    #controls .section {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid #ddd;
-      font-size: 13px;
-      font-weight: bold;
-    }
-    #controls details.section > summary {
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: bold;
-      list-style-position: inside;
-    }
-    #controls details.section[open] > summary {
-      margin-bottom: 4px;
-    }
-    /* Only the heading is bold; the controls inside inherit from .section
-       otherwise. */
-    #controls details.section label {
-      font-weight: normal;
-    }
-    #controls input[type="range"] {
-      width: 150px;
-    }
-    #controls button {
-      margin-top: 6px;
-      padding: 6px 12px;
-      cursor: pointer;
-      border: none;
-      background: #4CAF50;
-      color: white;
-      border-radius: 4px;
-      font-size: 12px;
-    }
-    #controls button:hover {
-      background: #45a049;
-    }
-    #info {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 10px;
-      border-radius: 8px;
-      font-size: 12px;
-      z-index: 1000;
-      pointer-events: auto;
-      max-width: 250px;
-      /* Paired with the cap on #controls above: 180 + 10 + 10 + 10 = 210. */
-      max-height: 180px;
-      overflow-y: auto;
-      box-sizing: border-box;
-    }
-    .particle-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 4px;
-      margin: 2px 0;
-      background: rgba(200, 220, 255, 0.3);
-      border-radius: 4px;
-      font-size: 11px;
-    }
-    .particle-item button {
-      padding: 2px 6px;
-      font-size: 10px;
-      cursor: pointer;
-      border: none;
-      background: #ff6b6b;
-      color: white;
-      border-radius: 3px;
-    }
-    .particle-item button:hover {
-      background: #ff5252;
-    }
-  </style>
+  <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
   <div id="controls">
@@ -135,16 +15,16 @@
          way the sliders below are. Empty on purpose. -->
     <label>
       Scene:
-      <select id="presetSelect" style="margin-left: 5px; padding: 2px; max-width: 150px;"></select>
+      <select id="presetSelect" class="control-select"></select>
     </label>
     <!-- Paired on one row rather than stacked: the panel is a single column and
          every full-width button pushes Clear All and Pause closer to the fold.
          See KNOWNISSUES.md. -->
-    <div style="display: flex; gap: 4px; margin-top: 4px;">
-      <button id="reloadPresetBtn" style="flex: 1; margin-top: 0;">Reload</button>
-      <button id="shareBtn" style="flex: 1; margin-top: 0; background: #3f7fd0;">Copy Link</button>
+    <div class="button-row" style="margin-top: 4px;">
+      <button id="reloadPresetBtn">Reload</button>
+      <button id="shareBtn" class="share">Copy Link</button>
     </div>
-    <div id="shareStatus" style="font-size: 11px; color: #666; margin-top: 4px; min-height: 14px;"></div>
+    <div id="shareStatus" class="note note-line" style="margin-top: 4px;"></div>
     <div class="section">New Bodies</div>
     <label>
       Mass: <span id="massValue">200</span>
@@ -195,14 +75,14 @@
       <summary>Physics</summary>
       <label style="font-size: 11px;">
         Scheme:
-        <select id="integratorSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
+        <select id="integratorSelect" class="control-select"></select>
       </label>
       <label>
         <input type="checkbox" id="adaptiveStepping" checked> Adaptive Sub-steps
       </label>
       <label style="font-size: 11px;">
         Contact:
-        <select id="collisionSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
+        <select id="collisionSelect" class="control-select"></select>
       </label>
       <!-- Inline rather than stacked: every full-width slider pushes Clear All
            and Pause closer to the fold when this section is open. -->
@@ -213,7 +93,7 @@
       </label>
       <label style="font-size: 11px;">
         Forces:
-        <select id="forceModeSelect" style="margin-left: 5px; padding: 2px; max-width: 145px;"></select>
+        <select id="forceModeSelect" class="control-select"></select>
       </label>
     </details>
     <div class="section" style="font-weight: normal;">
@@ -221,47 +101,52 @@
            the same reason the scene list is. -->
       <label style="font-size: 11px; margin-top: 0;">
         Field:
-        <select id="fieldModeSelect" style="margin-left: 5px; padding: 2px; max-width: 190px;"></select>
+        <select id="fieldModeSelect" class="control-select"></select>
       </label>
     </div>
-    <div style="display: flex; gap: 4px;">
-      <button id="clearBtn" style="flex: 1;">Clear All</button>
-      <button id="pauseBtn" style="flex: 1;">Pause</button>
+    <div class="button-row panel-actions">
+      <button id="clearBtn">Clear All</button>
+      <button id="pauseBtn">Pause</button>
     </div>
   </div>
   
   <div id="info">
     <strong>Click</strong> to add objects<br>
     <strong>Drag</strong> to add velocity<br>
+    <strong>Shift+click</strong> a body to follow it &nbsp; <strong>D</strong> for readouts<br>
+    <!-- Filled in by main.ts: which body the camera is holding, whether the
+         overlay is up, and — the reason this line exists at all — a word when a
+         followed body is absorbed and the camera lets go on its own. -->
+    <div id="followStatus" class="note note-line"></div>
     Objects: <span id="objectCount">0</span> &nbsp; Sub-steps: <span id="subStepCount">1</span>
     &nbsp; Forces: <span id="forceModeLabel">exact</span>
     &nbsp; Zoom: <span id="zoomValue">100</span>%
-    <div id="particleList" style="margin-top: 8px; max-height: 105px; overflow-y: auto;">
+    <div id="particleList">
       <!-- Particle list will be populated here -->
     </div>
   </div>
   
-  <div id="legend" style="position: absolute; bottom: 10px; right: 10px; background: rgba(255, 255, 255, 0.9); padding: 10px; border-radius: 8px; font-size: 11px; z-index: 1000; pointer-events: auto;">
+  <div id="legend">
     <strong id="legendTitle">Vector Field:</strong><br>
-    <div id="legendRamp" style="margin-top: 5px;">
-      <span style="color: #ff0000; font-weight: bold;">●</span> Strong
+    <div id="legendRamp">
+      <span class="swatch" style="color: #ff0000;">●</span> Strong
       <span id="legendMax" style="color: #444;">—</span><br>
-      <span style="color: #ffff00; font-weight: bold;">●</span> Medium-High<br>
-      <span style="color: #00ff00; font-weight: bold;">●</span> Medium<br>
-      <span style="color: #00ffff; font-weight: bold;">●</span> Medium-Low<br>
-      <span style="color: #0000ff; font-weight: bold;">●</span> Weak
+      <span class="swatch" style="color: #ffff00;">●</span> Medium-High<br>
+      <span class="swatch" style="color: #00ff00;">●</span> Medium<br>
+      <span class="swatch" style="color: #00ffff;">●</span> Medium-Low<br>
+      <span class="swatch" style="color: #0000ff;">●</span> Weak
       <span id="legendMin" style="color: #444;">—</span>
     </div>
     <!-- Filled in each frame from the range actually on screen. Arrow length
          and hue are normalized against that range, so without the numbers the
          picture has no absolute scale at all — see KNOWNISSUES.md. -->
-    <div id="legendScale" style="margin-top: 4px; font-size: 10px; color: #666;">
+    <div id="legendScale">
       log scale, per unit mass
     </div>
-    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #ccc;">
+    <div class="legend-section">
       <strong>Particle Vectors:</strong><br>
-      <span style="color: #ff8800; font-weight: bold;">→</span> Gravitational Force<br>
-      <span style="color: #00ffff; font-weight: bold;">→</span> Velocity (Movement)
+      <span class="swatch" style="color: #ff8800;">→</span> Gravitational Force<br>
+      <span class="swatch" style="color: #00ffff;">→</span> Velocity (Movement)
     </div>
   </div>
   

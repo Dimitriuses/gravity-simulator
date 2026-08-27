@@ -1,5 +1,5 @@
 import p5 from 'p5';
-import { PhysicsEngine } from './PhysicsEngine';
+import { Diagnostics, PhysicsEngine } from './PhysicsEngine';
 import { Renderer } from './Renderer';
 import { Particle } from './Particle';
 import { Camera } from './Camera';
@@ -18,6 +18,23 @@ const FIELD_MARGIN_PX = 60;
 
 /** Drag pixels to world velocity. A full-screen drag is a fast shot. */
 const DRAG_TO_VELOCITY = 0.05;
+
+/**
+ * How close a double-click has to land, in screen pixels, to pick up a body.
+ *
+ * Screen pixels rather than world units: the gesture is a viewer pointing at
+ * something they can see, so the tolerance belongs in what they can see. It is
+ * divided by the zoom at the point of use.
+ */
+const FOLLOW_PICK_RADIUS_PX = 24;
+
+/**
+ * How often the debug overlay recomputes, in milliseconds.
+ *
+ * Four times a second. The readings behind it cost a full O(n²) pass, and
+ * digits changing at 60Hz are digits nobody can read.
+ */
+const DEBUG_REFRESH_MS = 250;
 
 /**
  * How many bodies the list names individually before summarising the rest.
@@ -124,6 +141,35 @@ const sketch = (p: p5) => {
   const pauseBtn = el('pauseBtn');
   const objectCount = el('objectCount');
   const particleList = el('particleList');
+  const followStatus = el('followStatus');
+
+  /**
+   * The body the camera is holding on to, if any.
+   *
+   * A reference to the particle rather than an index: bodies merge, and the
+   * list they live in is spliced when they do, so an index would silently start
+   * pointing at a different body. A reference that has left the list is
+   * detectable, which is what `updateFollow` does with it.
+   */
+  let followed: Particle | null = null;
+
+  /** Whether the debug overlay is up, and what it last had to say. */
+  let debugVisible = false;
+  let debugLines: string[] = [];
+
+  /**
+   * Frame times, and the conserved quantities at the moment the overlay was
+   * opened.
+   *
+   * The overlay reports drift *since it was opened* rather than since the scene
+   * began, because the interesting question is almost always "what is happening
+   * now" — and because a scene that has been merging bodies for a minute has
+   * lost energy legitimately, which would swamp the reading.
+   */
+  const frameTimes: number[] = [];
+  let lastFrameAt = 0;
+  let debugBaseline: Diagnostics | null = null;
+  let debugRefreshedAt = 0;
 
   p.setup = () => {
     const canvas = p.createCanvas(p.windowWidth, p.windowHeight);
@@ -160,6 +206,12 @@ const sketch = (p: p5) => {
   };
 
   p.draw = () => {
+    recordFrameTime();
+
+    // Before the view bounds are taken: the camera has to be where it is going
+    // to be for this frame, or the field is sampled for the last one.
+    updateFollow();
+
     const view = camera.getViewBounds(FIELD_MARGIN_PX);
 
     if (isPaused) {
@@ -199,8 +251,23 @@ const sketch = (p: p5) => {
     camera.reset();
 
     // After the reset, so the ruler is measured in screen pixels: it is the one
-    // thing on the canvas whose size must not scale with the world.
+    // thing on the canvas whose size must not scale with the world. The follow
+    // ring and the overlay are here for the same reason.
     renderer.drawScaleBar();
+
+    if (followed) {
+      const screen = camera.worldToScreen(followed.position.x, followed.position.y);
+      renderer.drawFollowRing(
+        screen.x,
+        screen.y,
+        followed.radius * renderer.particleSizeMultiplier * camera.zoom
+      );
+    }
+
+    if (debugVisible) {
+      refreshDebugLines();
+      renderer.drawDebugOverlay(debugLines);
+    }
   };
 
   p.mousePressed = (event?: MouseEvent) => {
@@ -212,6 +279,21 @@ const sketch = (p: p5) => {
     if (p.mouseButton === p.CENTER || (p.mouseButton === p.LEFT && p.keyIsDown(p.CONTROL))) {
       camera.startPan(p.mouseX, p.mouseY);
       isPanning = true;
+      return;
+    }
+
+    // Shift+click picks up a body for the camera to follow, or lets go if the
+    // click lands on empty space.
+    //
+    // A modifier rather than a double-click, and that is not a style choice: a
+    // plain click *places a body*, so a double-click places two and then asks
+    // the camera to follow one of them — which, in merge mode, promptly
+    // absorbed the other and released the camera again. There is no gesture
+    // here that a click is not already the first half of.
+    if (p.mouseButton === p.LEFT && p.keyIsDown(p.SHIFT)) {
+      const world = camera.screenToWorld(p.mouseX, p.mouseY);
+      // In world units, so the same click tolerance holds at any zoom.
+      setFollowed(engine.getParticleAt(world.x, world.y, FOLLOW_PICK_RADIUS_PX / camera.zoom));
       return;
     }
 
@@ -262,6 +344,136 @@ const sketch = (p: p5) => {
 
     updateObjectCount();
   };
+
+  /**
+   * `D` shows the debug overlay, `Escape` lets go of a followed body.
+   *
+   * The guard matters: p5 listens on `window`, so this fires for a keystroke
+   * typed into any control on the page. Without it, typing in a field would
+   * toggle the overlay, and the range sliders — which take arrow keys and, in
+   * some browsers, letters — would do it too.
+   */
+  p.keyPressed = (event?: KeyboardEvent) => {
+    if (isTypingTarget(event?.target)) return;
+
+    if (event?.key === 'Escape') {
+      setFollowed(null);
+      return;
+    }
+
+    if (event?.key === 'd' || event?.key === 'D') {
+      debugVisible = !debugVisible;
+      // The baseline is taken when the overlay opens, so drift always reads
+      // from what a viewer was looking at when they asked.
+      debugBaseline = debugVisible ? engine.diagnostics() : null;
+      debugRefreshedAt = 0;
+      updateFollowStatus();
+    }
+  };
+
+  /** Is this event on a control that takes typing, rather than on the page? */
+  function isTypingTarget(target: EventTarget | null | undefined): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'SELECT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable
+    );
+  }
+
+  /** Point the camera at the followed body, and notice if it is gone. */
+  function updateFollow(): void {
+    if (!followed) return;
+
+    // Merging removes a body without anyone asking, so the reference has to be
+    // checked rather than trusted. Saying so is the point: a camera that
+    // quietly stopped following would look like a camera that had drifted.
+    if (!engine.particles.includes(followed)) {
+      followed = null;
+      updateFollowStatus('The followed body was absorbed — camera released');
+      return;
+    }
+
+    camera.centerOn(followed.position.x, followed.position.y);
+  }
+
+  function setFollowed(particle: Particle | null): void {
+    followed = particle;
+    updateFollowStatus();
+    if (particle) camera.centerOn(particle.position.x, particle.position.y);
+  }
+
+  function updateFollowStatus(message?: string): void {
+    if (message) {
+      followStatus.textContent = message;
+      return;
+    }
+
+    const parts: string[] = [];
+    if (followed) parts.push(`Following a ${Math.round(followed.mass)}-mass body (Esc releases)`);
+    if (debugVisible) parts.push('Debug overlay on (D)');
+    followStatus.textContent = parts.join(' · ');
+  }
+
+  /** Rolling frame times, for the overlay's frame rate. */
+  function recordFrameTime(): void {
+    const now = performance.now();
+    if (lastFrameAt > 0) {
+      frameTimes.push(now - lastFrameAt);
+      if (frameTimes.length > 60) frameTimes.shift();
+    }
+    lastFrameAt = now;
+  }
+
+  /**
+   * Rebuild the overlay's text, four times a second.
+   *
+   * Not every frame, for two reasons that point the same way: `diagnostics()`
+   * is a full O(n²) pass, the one cost the tree exists to avoid, and digits
+   * changing sixty times a second cannot be read anyway.
+   */
+  function refreshDebugLines(): void {
+    const now = performance.now();
+    if (now - debugRefreshedAt < DEBUG_REFRESH_MS) return;
+    debugRefreshedAt = now;
+
+    const sorted = [...frameTimes].sort((a, b) => a - b);
+    const median = sorted.length ? sorted[sorted.length >> 1] : 0;
+
+    const current = engine.diagnostics();
+    const baseline = debugBaseline ?? current;
+
+    /**
+     * How far a quantity has moved, against the size of the thing it belongs
+     * to.
+     *
+     * `scale` is the denominator: for energy it is the energy itself, but for
+     * momentum and angular momentum it is how much of them is *present*, since
+     * a balanced scene has none on net and dividing by that says nothing.
+     */
+    const drift = (now: number, then: number, scale: number) =>
+      scale > 1e-12 ? `${((Math.abs(now - then) / scale) * 100).toFixed(4)}%` : '—';
+
+    debugLines = [
+      `${median > 0 ? (1000 / median).toFixed(1) : '—'} fps   ${median.toFixed(1)} ms/frame`,
+      `bodies      ${engine.particles.length}`,
+      `sub-steps   ${engine.lastSubSteps}`,
+      `integrator  ${engine.integrator}`,
+      `forces      ${engine.usingBarnesHut() ? `tree, theta ${engine.theta}` : 'exact'}`,
+      `field       ${renderer.showVectorField ? engine.vectorField.fieldMode : 'off'}`,
+      `contacts    ${engine.collisionCount}`,
+      '',
+      'drift since the overlay opened',
+      `energy      ${drift(current.energy, baseline.energy, Math.abs(baseline.energy))}`,
+      `momentum    ${drift(
+        current.momentum.sub(baseline.momentum).magnitude(),
+        0,
+        baseline.momentumScale
+      )}`,
+      `angular     ${drift(current.angularMomentum, baseline.angularMomentum, baseline.angularScale)}`,
+    ];
+  }
 
   p.mouseWheel = (event: WheelEvent) => {
     // Only claim the wheel over the canvas. Preventing the default first meant

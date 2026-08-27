@@ -20,6 +20,36 @@ import { DEFAULT_THETA, QuadTree, treeAt, treeOf } from './quadtree';
  */
 export const SIMULATION_G = 0.5;
 
+/** Angular momentum is measured about the world origin, which never moves. */
+const ORIGIN = new Vector2D(0, 0);
+
+/**
+ * The conserved quantities, as the simulation currently has them.
+ *
+ * Energy is kinetic plus potential; momentum is a vector because its
+ * *direction* drifting is as much a symptom as its size; angular momentum is
+ * about the world origin, spin included.
+ */
+export interface Diagnostics {
+  kinetic: number;
+  potential: number;
+  energy: number;
+  momentum: Vector2D;
+  angularMomentum: number;
+  /**
+   * How much momentum and angular momentum are *present*, as sums of
+   * magnitudes rather than sums of signed quantities.
+   *
+   * Almost every scene here is built momentum-balanced — the presets are, and
+   * so is anything symmetric a viewer builds — so the totals above sit at zero
+   * and a drift measured as a fraction of them is a division by nothing. These
+   * say how much there is to lose, which is what makes "0.02% of it went
+   * missing" a sentence with a meaning.
+   */
+  momentumScale: number;
+  angularScale: number;
+}
+
 /** How forces are summed: over every pair, or through a Barnes-Hut tree. */
 export type ForceMode = 'exact' | 'barnes-hut' | 'auto';
 
@@ -330,6 +360,64 @@ export class PhysicsEngine implements ForceField {
   update(view: ViewBounds, dt: number = 1): void {
     this.step(dt);
     this.updateField(view);
+  }
+
+  /**
+   * What the simulation ought to be conserving, and is not.
+   *
+   * Total energy, total momentum and total angular momentum, summed over every
+   * body. Nothing in the simulation reads these — they are for the debug
+   * overlay, which shows how far each has drifted from where it started, and
+   * that is the only honest way to watch an integrator work: a scheme in
+   * trouble says so in these three numbers long before the picture looks wrong.
+   *
+   * The potential term is a sum over every *pair*, so this costs a full O(n²)
+   * pass — the thing the tree exists to avoid. Call it when something is going
+   * to read the answer, and not otherwise. `main` recomputes four times a
+   * second while the overlay is open, which is as fast as the digits can be
+   * read anyway.
+   */
+  diagnostics(): Diagnostics {
+    let kinetic = 0;
+    let potential = 0;
+    let angularMomentum = 0;
+    let momentumX = 0;
+    let momentumY = 0;
+    let momentumScale = 0;
+    let angularScale = 0;
+
+    for (let i = 0; i < this.particles.length; i++) {
+      const a = this.particles[i];
+
+      const angular = a.angularMomentumAbout(ORIGIN);
+
+      kinetic += 0.5 * a.mass * a.velocity.magnitudeSquared();
+      momentumX += a.mass * a.velocity.x;
+      momentumY += a.mass * a.velocity.y;
+      angularMomentum += angular;
+      momentumScale += a.mass * a.velocity.magnitude();
+      angularScale += Math.abs(angular);
+
+      for (let j = i + 1; j < this.particles.length; j++) {
+        const b = this.particles[j];
+        const separation = b.position.sub(a.position).magnitude();
+
+        // Softened exactly as the force law softens, so that two bodies in
+        // contact report a large potential rather than an infinite one.
+        const floor = a.radius + b.radius;
+        potential -= (this.G * a.mass * b.mass) / Math.max(separation, floor);
+      }
+    }
+
+    return {
+      kinetic,
+      potential,
+      energy: kinetic + potential,
+      momentum: new Vector2D(momentumX, momentumY),
+      angularMomentum,
+      momentumScale,
+      angularScale,
+    };
   }
 
   /**

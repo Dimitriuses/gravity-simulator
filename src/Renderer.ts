@@ -69,6 +69,24 @@ function formatLevel(value: number): string {
 /** The ruler along the bottom of the canvas. */
 const COLOR_SCALE_BAR = [150, 165, 190] as const;
 
+/**
+ * The ring drawn around a body the camera is following, and the debug
+ * overlay's text and backing.
+ *
+ * Both are deliberately not the body colours: a viewer has to be able to tell
+ * at a glance which of two similar-looking dots the camera is holding on to,
+ * and an overlay of numbers that reads as part of the simulation is worse than
+ * no overlay.
+ */
+const COLOR_FOLLOW_RING = [255, 200, 0] as const;
+const COLOR_DEBUG_TEXT = [190, 210, 240] as const;
+const COLOR_DEBUG_PANEL = [10, 15, 30, 200] as const;
+
+/** How far outside a followed body its ring sits, in screen pixels. */
+const FOLLOW_RING_MARGIN_PX = 8;
+/** ...and the smallest ring drawn, so a distant body still shows one. */
+const FOLLOW_RING_MIN_RADIUS_PX = 10;
+
 /** How far above the bottom edge the ruler sits. */
 const SCALE_BAR_MARGIN_PX = 28;
 
@@ -734,6 +752,73 @@ export class Renderer {
     this.p.textAlign(this.p.CENTER, this.p.TOP);
     this.p.textSize(11);
     this.p.text(label, this.p.width / 2, y + 6);
+    this.p.pop();
+  }
+
+  /**
+   * A ring around the body the camera is following.
+   *
+   * Drawn in *screen* space, like the ruler and the overlay, for the reason
+   * that makes the ring worth having: it has to stay the same size on screen
+   * whatever the zoom, or the thing meant to say "this one" would shrink to
+   * nothing exactly when a viewer is zoomed out and most needs it.
+   */
+  drawFollowRing(screenX: number, screenY: number, bodyRadiusPx: number): void {
+    const radius = Math.max(bodyRadiusPx + FOLLOW_RING_MARGIN_PX, FOLLOW_RING_MIN_RADIUS_PX);
+
+    this.p.push();
+    this.p.noFill();
+    this.p.stroke(...COLOR_FOLLOW_RING);
+    this.p.strokeWeight(1.5);
+    this.p.circle(screenX, screenY, radius * 2);
+
+    // Four ticks rather than a solid ring: a plain circle around a body reads
+    // as part of the body, and this is not physics.
+    this.p.strokeWeight(2);
+    for (const angle of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      this.p.line(
+        screenX + cos * radius,
+        screenY + sin * radius,
+        screenX + cos * (radius + 5),
+        screenY + sin * (radius + 5)
+      );
+    }
+    this.p.pop();
+  }
+
+  /**
+   * The debug overlay: whatever `main` decided is worth knowing, in the corner.
+   *
+   * Screen space, after the camera transform is reset, for the same reason the
+   * ruler is. The renderer deliberately knows nothing about what the lines say
+   * — it takes strings — so that adding a reading to the overlay never means
+   * teaching the renderer about the simulation.
+   */
+  drawDebugOverlay(lines: readonly string[]): void {
+    if (lines.length === 0) return;
+
+    const padding = 8;
+    const lineHeight = 14;
+    const width = 232;
+    const height = lines.length * lineHeight + padding * 2;
+    const left = this.p.width - width - 10;
+    const top = 10;
+
+    this.p.push();
+    this.p.noStroke();
+    this.p.fill(...COLOR_DEBUG_PANEL);
+    this.p.rect(left, top, width, height, 6);
+
+    this.p.fill(...COLOR_DEBUG_TEXT);
+    this.p.textAlign(this.p.LEFT, this.p.TOP);
+    this.p.textSize(11);
+    this.p.textFont('monospace');
+
+    lines.forEach((line, index) => {
+      this.p.text(line, left + padding, top + padding + index * lineHeight);
+    });
     this.p.pop();
   }
 

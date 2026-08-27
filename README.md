@@ -64,8 +64,13 @@ inferred from how things move.
   round number of world units, and contour lines carry their own levels.
 - **Per-body vectors** — net gravitational force (orange) and velocity (cyan),
   drawn on each body.
-- **Camera** — wheel zoom about the cursor (10%–500%) and drag-to-pan. The field
+- **Camera** — wheel zoom about the cursor (10%–500%) and drag-to-pan, or
+  shift-click a body to have the camera hold on to it while it orbits. The field
   is resampled for whatever is on screen.
+- **A readout, on `D`** — frame rate, body count, sub-steps, what the solver is
+  doing, and how far energy, momentum and angular momentum have drifted since
+  you opened it. Which is the honest way to watch an integrator: a scheme in
+  trouble says so in those three numbers long before the picture looks wrong.
 - **Trails**, adjustable mass, field range, body scale and arrow scale, and a
   pause that keeps the force arrows live so you can inspect a frozen
   configuration.
@@ -98,6 +103,8 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Left-click** (no drag) | Place a stationary body |
 | **Middle-drag**, or **Ctrl + left-drag** | Pan the view |
 | **Scroll wheel** | Zoom about the cursor, 10%–500% |
+| **Shift + left-click** a body | Follow it: the camera keeps it centred as it moves. Shift-click empty space, or press **Esc**, to let go |
+| **D** | Show or hide the debug readout |
 | **Reset Camera** | Back to origin at 100% |
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
@@ -224,8 +231,9 @@ before trusting a change.
 ## Tests
 
 ```bash
+npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 259 unit tests, headless, ~19s
+npm test            # 268 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -256,7 +264,7 @@ measurement is run through RK4 rather than the default integrator.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 83 properties, including that the background is the intended navy, that
+asserts 92 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the

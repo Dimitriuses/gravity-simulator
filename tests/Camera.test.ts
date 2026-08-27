@@ -150,6 +150,55 @@ describe('Camera', () => {
     });
   });
 
+  describe('centerOn', () => {
+    it('puts the given world point in the middle of the screen', () => {
+      const camera = makeCamera(800, 600);
+      camera.zoom = 2.5;
+
+      camera.centerOn(140, -60);
+
+      const screen = camera.worldToScreen(140, -60);
+      expect(screen.x).toBeCloseTo(400, 9);
+      expect(screen.y).toBeCloseTo(300, 9);
+    });
+
+    it('holds a moving body still on screen, wherever it goes', () => {
+      // What following a body is, once the camera transform is taken out of it.
+      const camera = makeCamera(800, 600);
+      camera.zoom = 0.4;
+
+      for (const [x, y] of [
+        [0, 0],
+        [3000, -1200],
+        [-25000, 40000],
+      ]) {
+        camera.centerOn(x, y);
+        const screen = camera.worldToScreen(x, y);
+
+        expect(screen.x, `x at ${x},${y}`).toBeCloseTo(400, 9);
+        expect(screen.y, `y at ${x},${y}`).toBeCloseTo(300, 9);
+      }
+    });
+
+    it('stops a pan in progress rather than fighting it', () => {
+      // A drag and a followed body both want to set the camera. Letting the
+      // follow win silently leaves the pointer dragging a view that does not
+      // move, which reads as the app having frozen.
+      const camera = makeCamera(800, 600);
+      camera.startPan(100, 100);
+      expect(camera.isCurrentlyPanning()).toBe(true);
+
+      camera.centerOn(500, 500);
+
+      expect(camera.isCurrentlyPanning()).toBe(false);
+
+      // ...and a drag that carries on after that does not move the camera.
+      camera.updatePan(300, 220);
+      expect(camera.x).toBe(500);
+      expect(camera.y).toBe(500);
+    });
+  });
+
   describe('getViewBounds', () => {
     it('covers exactly the canvas at 100% zoom', () => {
       const bounds = makeCamera().getViewBounds();
