@@ -159,24 +159,35 @@ export const INTEGRATOR_LABELS: ReadonlyArray<{ id: IntegratorName; label: strin
   { id: 'rk4', label: 'Runge-Kutta 4 (not symplectic)' },
 ];
 
+/**
+ * The step rule's timescale for one pair: the smaller of how fast their own
+ * gravity turns them and how long they stay at this separation.
+ *
+ * Exported because it is the definition of the rule, and three other things
+ * need to agree with it exactly — the pairwise scan below, the tree's
+ * branch-and-bound search in `quadtree.ts`, and the tool that measures how much
+ * of a frame's sub-stepping each body is responsible for. A second copy of this
+ * arithmetic is a second answer waiting to disagree.
+ */
+export function pairTimescale(a: Particle, b: Particle, G: number): number {
+  const contactDistance = a.radius + b.radius;
+  const separation = Math.max(b.position.sub(a.position).magnitude(), contactDistance);
+
+  const dynamical = Math.sqrt(separation ** 3 / (G * (a.mass + b.mass)));
+
+  const relativeSpeed = b.velocity.sub(a.velocity).magnitude();
+  const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
+
+  return Math.min(dynamical, crossing);
+}
+
 /** The pairwise scan: a minimum over every pair in the system. */
 function shortestInteractionTime(particles: Particle[], G: number): number {
   let shortest = Infinity;
 
   for (let i = 0; i < particles.length; i++) {
     for (let j = i + 1; j < particles.length; j++) {
-      const a = particles[i];
-      const b = particles[j];
-
-      const contactDistance = a.radius + b.radius;
-      const separation = Math.max(b.position.sub(a.position).magnitude(), contactDistance);
-
-      const dynamical = Math.sqrt(separation ** 3 / (G * (a.mass + b.mass)));
-
-      const relativeSpeed = b.velocity.sub(a.velocity).magnitude();
-      const crossing = relativeSpeed > 0 ? separation / relativeSpeed : Infinity;
-
-      shortest = Math.min(shortest, dynamical, crossing);
+      shortest = Math.min(shortest, pairTimescale(particles[i], particles[j], G));
     }
   }
 
@@ -192,7 +203,7 @@ function shortestInteractionTime(particles: Particle[], G: number): number {
  * whatever its radius. That is the number the fixed step could not hold on to:
  * it managed 1,005 at r = 400 and five at r = 12.
  */
-const SAFETY_FRACTION = 1 / 16;
+export const SAFETY_FRACTION = 1 / 16;
 
 /**
  * Ceiling on sub-steps per frame.
@@ -218,6 +229,26 @@ export const MAX_SUB_STEPS = 64;
  * force law: below contact the force stops growing, so the timescale should
  * stop shrinking too, or two overlapping bodies would demand infinite steps.
  */
+/**
+ * How many sub-steps a given timescale asks for, over a step of `dt`.
+ *
+ * The last two lines of `recommendedSubSteps` below, pulled out so that "what
+ * would *this* body need on its own?" can be asked with the same arithmetic
+ * that decides what the whole system needs.
+ */
+export function subStepsForTimescale(
+  shortest: number,
+  dt: number,
+  maxSubSteps: number = MAX_SUB_STEPS
+): number {
+  if (!Number.isFinite(shortest)) return 1;
+
+  const safeStep = SAFETY_FRACTION * shortest;
+  if (!(safeStep > 0)) return maxSubSteps;
+
+  return Math.max(1, Math.min(maxSubSteps, Math.ceil(dt / safeStep)));
+}
+
 export function recommendedSubSteps(
   particles: Particle[],
   G: number,
@@ -234,10 +265,5 @@ export function recommendedSubSteps(
     : shortestInteractionTime(particles, G);
 
   // One body, or none: nothing accelerates, so one step is exact.
-  if (!Number.isFinite(shortest)) return 1;
-
-  const safeStep = SAFETY_FRACTION * shortest;
-  if (!(safeStep > 0)) return maxSubSteps;
-
-  return Math.max(1, Math.min(maxSubSteps, Math.ceil(dt / safeStep)));
+  return subStepsForTimescale(shortest, dt, maxSubSteps);
 }

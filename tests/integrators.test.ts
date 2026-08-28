@@ -4,7 +4,9 @@ import {
   INTEGRATORS,
   IntegratorName,
   MAX_SUB_STEPS,
+  pairTimescale,
   recommendedSubSteps,
+  subStepsForTimescale,
   rungeKutta4,
   symplecticEuler,
   velocityVerlet,
@@ -430,5 +432,62 @@ describe('integrator selection', () => {
     const engine = new PhysicsEngine(30);
     expect(engine.integrator).toBe('verlet');
     expect(engine.adaptiveStepping).toBe(true);
+  });
+});
+
+describe('the step rule, taken apart', () => {
+  /**
+   * `pairTimescale` and `subStepsForTimescale` are exported so that the
+   * benchmark can ask "what would *this* body have needed on its own?" with the
+   * same arithmetic the engine uses. That is only true while these hold.
+   */
+  it('is the minimum of the pair timescales, over every pair', () => {
+    // A small deterministic generator, so the scene is the same scene each run.
+    let state = 31415;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+
+    const particles = Array.from({ length: 40 }, () =>
+      new Particle(
+        (random() - 0.5) * 2000,
+        (random() - 0.5) * 2000,
+        20 + random() * 900,
+        (random() - 0.5) * 6,
+        (random() - 0.5) * 6
+      )
+    );
+
+    let shortest = Infinity;
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        shortest = Math.min(shortest, pairTimescale(particles[i], particles[j], SIMULATION_G));
+      }
+    }
+
+    expect(subStepsForTimescale(shortest, 1)).toBe(
+      recommendedSubSteps(particles, SIMULATION_G, 1)
+    );
+  });
+
+  it('asks for more sub-steps as the timescale shortens, and stops at the cap', () => {
+    expect(subStepsForTimescale(Infinity, 1)).toBe(1);
+    expect(subStepsForTimescale(100, 1)).toBe(1);
+    expect(subStepsForTimescale(1, 1)).toBe(16);
+    expect(subStepsForTimescale(0.1, 1)).toBe(64);
+    expect(subStepsForTimescale(0, 1)).toBe(64);
+  });
+
+  it('clamps a pair at contact, so touching bodies do not ask for infinity', () => {
+    const a = new Particle(0, 0, 1000);
+    const b = new Particle(0, 0, 1000);
+    const touching = new Particle(a.radius + b.radius, 0, 1000);
+
+    expect(Number.isFinite(pairTimescale(a, b, SIMULATION_G))).toBe(true);
+    expect(pairTimescale(a, b, SIMULATION_G)).toBeCloseTo(
+      pairTimescale(a, touching, SIMULATION_G),
+      12
+    );
   });
 });

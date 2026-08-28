@@ -653,26 +653,74 @@ worth finding:
   and the legend now says "field overlay off" instead of showing the numbers the
   last scene left behind.
 
-## M15 — Per-body time-stepping
+## M15 — Per-body time-stepping — **measured, and not built**
 
-*Large*, and inherited from M7, where it was the one item that changes what the
-engine is rather than what it costs.
+*Large*, inherited from M7, and written with a clause that turned out to matter:
+*measure first, and be willing to stop there*. The measurement is in
+[`SCALING.md`](SCALING.md) under **Who is paying for the sub-steps**, and it
+says stop.
 
-Sub-stepping is global: one tight pair subdivides the step for every body in the
-scene, including bodies nowhere near it. Confining the cost to the bodies that
-earn it is the standard answer and a substantial change — bodies would sit at
-different times, so a force evaluation needs positions extrapolated to a common
-one, and the integrator contract in [`CLAUDE.md`](CLAUDE.md) is written assuming
-they do not.
+Sub-stepping is global: the rule finds the shortest interaction timescale
+anywhere in the system and slices the frame finely enough for that pair, then
+every body takes every sub-step. `npm run bench` now asks what each body would
+have needed on its own — the same arithmetic, over only the pairs that body is
+in — and compares:
 
-**Measure first, and be willing to stop there.** The question this milestone
-turns on is what fraction of the sub-steps in a frame are spent on bodies that
-did not need them, and nothing in `npm run bench` reports it today. The Galaxy
-preset asks for three sub-steps; if two of them are being paid for by three
-hundred bodies on account of one close pair, the case is made. If the scenes the
-interface encourages rarely subdivide at all, the honest outcome is a paragraph
-in SCALING.md saying so — which is what happened to M7's *drawing* item, and it
-was worth more than the change would have been.
+| scene | bodies | sub-steps taken | median body needs | wasted |
+|---|---:|---:|---:|---:|
+| every hand-built scene | 2–9 | 1 | 1 | **0%** |
+| Galaxy | 300 | 3 | 1 | 65% |
+| a 2,048-body disc | 2048 | 3 | 1 | 56% |
+| 300 bodies plus one tight pair | 302 | 10 | 1 | 88% |
+
+And what the ceiling is worth in time, measured against the same frame with
+adaptive stepping switched off:
+
+| bodies | frame | with 1 sub-step | sub-stepping costs | most per-body could save |
+|---:|---:|---:|---:|---:|
+| 300 | 7.44 ms | 2.00 ms | 5.44 ms | **3.5 ms** |
+| 2048 | 115.3 ms | 28.0 ms | 87.3 ms | **49.0 ms** |
+
+**Why that is a no.** Eight of the ten scenes the app offers take a single
+sub-step, where per-body stepping saves nothing at all. On the Galaxy preset it
+could save 3.5 ms in a frame that already has seven milliseconds of headroom and
+is capped by the display rather than the work — a viewer would see no difference
+whatsoever. The 49 ms at two thousand bodies is real, and it is a scene the app
+neither ships nor could draw at an interactive rate: 115 ms a frame becomes 66,
+which is nine frames a second becoming fifteen.
+
+**What it would cost**, against that. Bodies would sit at different times, and
+three things in this codebase are written assuming they do not:
+
+- **The integrator contract** in [`CLAUDE.md`](CLAUDE.md) — accelerations
+  current on entry and on exit — is a statement about a common time. A force
+  evaluation would need every other body's position extrapolated to the time of
+  the body being moved.
+- **Swept contact detection** compares each body's position before and after the
+  *same* step, and winds a pair back to the moment they met. Two bodies on
+  different rungs share no such interval, and contact is the one place where
+  getting the interval wrong lets a body through another.
+- **`netForce` has to be current for every body when `step()` returns**, because
+  the renderer draws it. Bodies on slow rungs would not have been touched at the
+  frame's end time, so a synchronising pass would be needed — and a full force
+  evaluation at the end of each frame is a good fraction of what the scheme was
+  trying to save.
+
+**When to reconsider**, since that is the point of writing this down rather than
+deleting the item: if the app ever encourages scenes of a thousand bodies or
+more, or if bounce mode becomes a common way to use it — a settled pile holds
+the whole scene at a fine step for as long as it sits there, and that is the 88%
+row. The cheaper answer for *that* case is not per-body stepping at all but a
+step rule that can tell a pair which is touching and quiet from a pair about to
+collide at speed; the rule clamps separation at contact and then has no way to
+distinguish the two. That is a smaller change and a different milestone, and
+nobody has needed it yet.
+
+**What the milestone did leave behind**: `pairTimescale` and
+`subStepsForTimescale` are now exported from `integrators.ts`, so the rule has
+one definition rather than one per caller — the scan, the tree's search and the
+benchmark all use it — and `npm run bench` reports the attribution above every
+time it runs, which is what would notice if the answer ever changed.
 
 ## M16 — Fragmentation
 

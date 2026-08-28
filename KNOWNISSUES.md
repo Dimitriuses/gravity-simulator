@@ -187,6 +187,15 @@ What limits it now, in order:
 - **The force evaluation**, once per sub-step. On the Galaxy preset with the
   overlay off this is most of what is left, and the frame is capped by the
   display rather than by the work.
+- **Sub-stepping is global**, so one tight pair slices the frame for every body
+  in the scene. Measured (roadmap M15): every scene the app ships takes a single
+  sub-step and wastes nothing; the Galaxy preset takes three where the median
+  body needs one, which is 3.5 ms of a frame with seven to spare. A scene with
+  one very close pair in it takes ten and wastes 88% — reachable by leaving a
+  pile of bodies in bounce mode, where a resting contact holds the whole scene
+  at a fine step for as long as it sits there. Per-body stepping is the standard
+  answer and was measured rather than built; M15 says why, and what would make
+  it worth revisiting.
 - **Drawing**, which is *not* the wall it was once assumed to be: profiling a
   paused 211-body frame puts it at about 1.1 ms against 79% idle. Roadmap M7
   proposed dropping the glow pass and the measurement argued against it.

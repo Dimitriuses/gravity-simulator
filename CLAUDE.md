@@ -96,6 +96,13 @@ Both halves earn their keep:
   update is the one the next step opens with. RK4's first stage reuses it too,
   which is why it costs four evaluations rather than five.
 
+The rule that decides *how many* sub-steps has one definition, not one per
+caller: `pairTimescale` and `subStepsForTimescale` in `integrators.ts`. The
+pairwise scan, the tree's branch-and-bound search and `npm run bench`'s
+attribution table all go through them, because four copies of "the smaller of
+the dynamical and crossing times, clamped at contact" is four answers waiting to
+disagree.
+
 `PhysicsEngine` keeps a private `forcesDirty` flag and refreshes before the
 first sub-step, because adding or removing a body invalidates the entry
 condition. `tests/integrators.test.ts` counts evaluations through a wrapping

@@ -24,7 +24,9 @@ const { Particle } = await server.ssrLoadModule('/src/Particle.ts');
 const { treeOf } = await server.ssrLoadModule('/src/quadtree.ts');
 const { accelerationsAt } = await server.ssrLoadModule('/src/forces.ts');
 const { resolveCollisions } = await server.ssrLoadModule('/src/collisions.ts');
-const { recommendedSubSteps } = await server.ssrLoadModule('/src/integrators.ts');
+const { recommendedSubSteps, pairTimescale, subStepsForTimescale } =
+  await server.ssrLoadModule('/src/integrators.ts');
+const { PRESETS, presetParticles } = await server.ssrLoadModule('/src/presets.ts');
 
 const COUNTS = [64, 128, 256, 512, 1024, 2048];
 const VIEW = { minX: -1600, minY: -1000, maxX: 1600, maxY: 1000 };
@@ -65,6 +67,9 @@ function galaxy(count, seed = 20240826) {
 
   return bodies;
 }
+
+/** The mass of the disc's central body, whatever `galaxy` chose. */
+const centreMassOf = (body) => body.mass;
 
 function engineWith(count, forceMode) {
   const engine = new PhysicsEngine(30);
@@ -200,6 +205,120 @@ for (const count of COUNTS) {
 }
 
 line('');
+line('## Who is paying for the sub-steps');
+line('');
+line('Sub-stepping is global: the rule finds the shortest interaction timescale');
+line('anywhere in the system and slices the frame finely enough for *that* pair,');
+line('then every body takes every sub-step. This asks what each body would have');
+line('needed on its own — the same arithmetic, over only the pairs that body is');
+line('actually in — and compares the two.');
+line('');
+line('`global` is the sub-steps the engine takes. `needed` is the median and the');
+line('maximum over the bodies. `wasted` is the fraction of body-steps spent on');
+line('bodies that did not need them: 1 - (sum of what each body needed) / (bodies');
+line('x global). It is the ceiling on what per-body stepping could save on the');
+line('force pass, before any of the cost of arranging it.');
+line('');
+line('| scene | bodies | global | needed, median | needed, max | wasted |');
+line('|---|---:|---:|---:|---:|---:|');
+
+/**
+ * What each body would ask for if it only had to keep up with its own closest
+ * interaction, rather than with the system's.
+ */
+function perBodySubSteps(particles, dt) {
+  const shortest = new Array(particles.length).fill(Infinity);
+
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i + 1; j < particles.length; j++) {
+      const t = pairTimescale(particles[i], particles[j], SIMULATION_G);
+      if (t < shortest[i]) shortest[i] = t;
+      if (t < shortest[j]) shortest[j] = t;
+    }
+  }
+
+  return shortest.map((t) => subStepsForTimescale(t, dt));
+}
+
+function subStepReport(name, particles, dt = 1) {
+  const global = recommendedSubSteps(particles, SIMULATION_G, dt, 64);
+  const needed = perBodySubSteps(particles, dt);
+  const sorted = [...needed].sort((a, b) => a - b);
+
+  const total = needed.reduce((sum, n) => sum + n, 0);
+  const wasted = 1 - total / (particles.length * global);
+
+  line(
+    `| ${name} | ${particles.length} | ${global} | ${sorted[sorted.length >> 1]} | ` +
+      `${sorted[sorted.length - 1]} | ${(wasted * 100).toFixed(1)}% |`
+  );
+
+  return { global, wasted };
+}
+
+// The scenes the interface actually offers, at the step each of them runs at.
+for (const preset of PRESETS) {
+  const particles = presetParticles(preset);
+  if (particles.length < 2) continue;
+  subStepReport(preset.name, particles, preset.timeStep ?? 1);
+}
+
+// A disc big enough that the tree is doing the work, which is the case the
+// question is really about.
+subStepReport('galaxy, 2048 bodies', galaxy(2048));
+
+// And the pathological one: a wide, quiet cloud with a single tight pair
+// dropped into it. This is what the milestone was written for.
+{
+  const cloud = galaxy(300);
+  const random = seeded(99);
+  const centre = cloud[0];
+
+  // Two bodies almost touching, far from everything, moving fast past each
+  // other: the shortest timescale in the system by a wide margin.
+  const x = 1800 + random() * 40;
+  const pairSpeed = Math.sqrt((SIMULATION_G * centreMassOf(centre)) / x) * 0.8;
+  cloud.push(new Particle(x, 0, 400, 0, pairSpeed));
+  cloud.push(new Particle(x + 9, 0, 400, 0, -pairSpeed));
+
+  subStepReport('the same, plus one tight pair', cloud);
+}
+
+line('');
+line('And what that ceiling is worth in milliseconds. `1 sub-step` is the same');
+line('frame with adaptive stepping switched off, so the difference between the two');
+line('columns is the entire cost of sub-stepping — of which per-body stepping could');
+line('recover the fraction in the table above, less whatever arranging it costs.');
+line('');
+line('| bodies | adaptive | 1 sub-step | sub-stepping costs | ceiling on the saving |');
+line('|---:|---:|---:|---:|---:|');
+
+for (const [count, wasted] of [
+  [300, 0.649],
+  [2048, 0.561],
+]) {
+  const bodies = count === 300 ? presetParticles(PRESETS.find((p) => p.id === 'galaxy')) : galaxy(count);
+
+  const adaptive = new PhysicsEngine(30);
+  adaptive.collisionMode = 'none';
+  for (const body of bodies) adaptive.addParticle(new Particle(body.position ? body.position.x : body.x, body.position ? body.position.y : body.y, body.mass, body.velocity ? body.velocity.x : body.vx, body.velocity ? body.velocity.y : body.vy));
+
+  const fixed = new PhysicsEngine(30);
+  fixed.collisionMode = 'none';
+  fixed.adaptiveStepping = false;
+  for (const body of bodies) fixed.addParticle(new Particle(body.position ? body.position.x : body.x, body.position ? body.position.y : body.y, body.mass, body.velocity ? body.velocity.x : body.vx, body.velocity ? body.velocity.y : body.vy));
+
+  const withAdaptive = time(5, () => adaptive.step());
+  const withoutAdaptive = time(5, () => fixed.step());
+  const cost = withAdaptive - withoutAdaptive;
+
+  line(
+    `| ${count} | ${ms(withAdaptive)} ms | ${ms(withoutAdaptive)} ms | ${ms(cost)} ms | ` +
+      `${ms(cost * wasted)} ms |`
+  );
+}
+line('');
+
 line('## A whole frame');
 line('');
 line('`step()` and `updateField()` together, which is what one animation frame');

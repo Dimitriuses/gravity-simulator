@@ -73,12 +73,12 @@ building the tree, which is rebuilt from scratch every evaluation.
 
 | bodies | exact | tree | speed-up |
 |---:|---:|---:|---:|
-| 64 | 0.53 ms | 0.41 ms | 1.28x |
-| 128 | 1.47 ms | 0.86 ms | 1.70x |
-| 256 | 4.98 ms | 1.26 ms | 3.96x |
-| 512 | 20.2 ms | 3.10 ms | 6.51x |
-| 1024 | 72.4 ms | 7.33 ms | 9.88x |
-| 2048 | 290.4 ms | 17.1 ms | 17.00x |
+| 64 | 0.53 ms | 0.46 ms | 1.16x |
+| 128 | 1.83 ms | 0.90 ms | 2.03x |
+| 256 | 5.25 ms | 1.48 ms | 3.54x |
+| 512 | 20.5 ms | 3.50 ms | 5.85x |
+| 1024 | 81.0 ms | 7.99 ms | 10.14x |
+| 2048 | 334.6 ms | 19.6 ms | 17.12x |
 
 ## One field rebuild
 
@@ -88,12 +88,12 @@ helps most, because the sample count does not fall as bodies are added.
 
 | bodies | exact | tree | speed-up | samples |
 |---:|---:|---:|---:|---:|
-| 64 | 9.41 ms | 5.75 ms | 1.64x | 3203 |
-| 128 | 26.9 ms | 12.9 ms | 2.09x | 6164 |
-| 256 | 78.3 ms | 29.4 ms | 2.66x | 10063 |
-| 512 | 165.0 ms | 58.7 ms | 2.81x | 11999 |
-| 1024 | 316.2 ms | 85.5 ms | 3.70x | 11999 |
-| 2048 | 615.8 ms | 130.0 ms | 4.74x | 12000 |
+| 64 | 11.5 ms | 6.75 ms | 1.71x | 3203 |
+| 128 | 28.8 ms | 14.8 ms | 1.95x | 6164 |
+| 256 | 89.8 ms | 34.7 ms | 2.59x | 10063 |
+| 512 | 244.8 ms | 59.6 ms | 4.11x | 11999 |
+| 1024 | 484.1 ms | 93.9 ms | 5.15x | 11999 |
+| 2048 | 957.8 ms | 144.7 ms | 6.62x | 12000 |
 
 ## What each field mode costs
 
@@ -109,21 +109,21 @@ structure — but far more slowly, and it never has to be truncated.
 
 | bodies | mode | time | drawn |
 |---:|---|---:|---:|
-| 3 | gradient | 0.29 ms | 417 |
-| 3 | adaptive | 2.06 ms | 1166 |
-| 3 | uniform | 1.59 ms | 467 |
-| 3 | contours | 3.61 ms | 1444 |
-| 3 | streamlines | 1.97 ms | 286 |
-| 64 | gradient | 7.54 ms | 3203 |
-| 64 | adaptive | 35.3 ms | 9828 |
-| 64 | uniform | 8.71 ms | 2468 |
-| 64 | contours | 5.55 ms | 1443 |
-| 64 | streamlines | 9.11 ms | 1844 |
-| 300 | gradient | 35.3 ms | 11260 |
-| 300 | adaptive | 39.3 ms | 12000 |
-| 300 | uniform | 13.4 ms | 6167 |
-| 300 | contours | 17.8 ms | 1445 |
-| 300 | streamlines | 12.6 ms | 2258 |
+| 3 | gradient | 0.31 ms | 417 |
+| 3 | adaptive | 2.62 ms | 1166 |
+| 3 | uniform | 1.65 ms | 467 |
+| 3 | contours | 5.34 ms | 1444 |
+| 3 | streamlines | 2.84 ms | 286 |
+| 64 | gradient | 11.4 ms | 3203 |
+| 64 | adaptive | 40.0 ms | 9828 |
+| 64 | uniform | 10.7 ms | 2468 |
+| 64 | contours | 4.79 ms | 1443 |
+| 64 | streamlines | 11.5 ms | 1844 |
+| 300 | gradient | 39.1 ms | 11260 |
+| 300 | adaptive | 40.1 ms | 12000 |
+| 300 | uniform | 14.4 ms | 6167 |
+| 300 | contours | 18.8 ms | 1445 |
+| 300 | streamlines | 13.5 ms | 2258 |
 
 ## Where the rest of a frame goes
 
@@ -134,12 +134,49 @@ cost where they have one.
 
 | bodies | contact scan | contact via tree | step rule: scan | step rule: tree |
 |---:|---:|---:|---:|---:|
-| 64 | 0.37 ms | 0.28 ms | 1.00 ms | 0.81 ms |
-| 128 | 0.34 ms | 0.19 ms | 1.11 ms | 0.47 ms |
-| 256 | 0.39 ms | 0.36 ms | 3.69 ms | 1.07 ms |
-| 512 | 2.09 ms | 0.66 ms | 15.0 ms | 3.21 ms |
-| 1024 | 8.59 ms | 1.40 ms | 61.7 ms | 8.92 ms |
-| 2048 | 36.8 ms | 3.32 ms | 243.6 ms | 29.8 ms |
+| 64 | 0.38 ms | 0.30 ms | 1.03 ms | 0.75 ms |
+| 128 | 0.74 ms | 0.20 ms | 1.89 ms | 0.49 ms |
+| 256 | 0.40 ms | 0.39 ms | 4.12 ms | 1.16 ms |
+| 512 | 2.22 ms | 0.70 ms | 17.0 ms | 3.42 ms |
+| 1024 | 8.29 ms | 1.59 ms | 67.5 ms | 10.8 ms |
+| 2048 | 39.6 ms | 4.13 ms | 273.0 ms | 31.4 ms |
+
+## Who is paying for the sub-steps
+
+Sub-stepping is global: the rule finds the shortest interaction timescale
+anywhere in the system and slices the frame finely enough for *that* pair,
+then every body takes every sub-step. This asks what each body would have
+needed on its own — the same arithmetic, over only the pairs that body is
+actually in — and compares the two.
+
+`global` is the sub-steps the engine takes. `needed` is the median and the
+maximum over the bodies. `wasted` is the fraction of body-steps spent on
+bodies that did not need them: 1 - (sum of what each body needed) / (bodies
+x global). It is the ceiling on what per-body stepping could save on the
+force pass, before any of the cost of arranging it.
+
+| scene | bodies | global | needed, median | needed, max | wasted |
+|---|---:|---:|---:|---:|---:|
+| Binary | 2 | 1 | 1 | 1 | 0.0% |
+| Star and planets | 3 | 1 | 1 | 1 | 0.0% |
+| Figure eight | 3 | 1 | 1 | 1 | 0.0% |
+| Comet | 2 | 1 | 1 | 1 | 0.0% |
+| Lagrange points | 4 | 1 | 1 | 1 | 0.0% |
+| Solar System (J2000) | 9 | 1 | 1 | 1 | 0.0% |
+| Galaxy | 300 | 3 | 1 | 3 | 64.9% |
+| Slingshot | 2 | 1 | 1 | 1 | 0.0% |
+| galaxy, 2048 bodies | 2048 | 3 | 1 | 3 | 56.1% |
+| the same, plus one tight pair | 302 | 10 | 1 | 10 | 88.3% |
+
+And what that ceiling is worth in milliseconds. `1 sub-step` is the same
+frame with adaptive stepping switched off, so the difference between the two
+columns is the entire cost of sub-stepping — of which per-body stepping could
+recover the fraction in the table above, less whatever arranging it costs.
+
+| bodies | adaptive | 1 sub-step | sub-stepping costs | ceiling on the saving |
+|---:|---:|---:|---:|---:|
+| 300 | 7.44 ms | 2.00 ms | 5.44 ms | 3.53 ms |
+| 2048 | 115.3 ms | 28.0 ms | 87.3 ms | 49.0 ms |
 
 ## A whole frame
 
@@ -153,12 +190,12 @@ which is the most expensive thing the controls can ask for — 12,000 samples.
 
 | bodies | exact | tree | sub-steps |
 |---:|---:|---:|---:|
-| 64 | 12.2 ms | 5.79 ms | 2 |
-| 128 | 36.3 ms | 15.6 ms | 3 |
-| 256 | 111.7 ms | 34.8 ms | 3 |
-| 512 | 284.3 ms | 71.9 ms | 3 |
-| 1024 | 726.0 ms | 130.2 ms | 3 |
-| 2048 | 2252.7 ms | 243.9 ms | 3 |
+| 64 | 12.7 ms | 6.54 ms | 2 |
+| 128 | 45.2 ms | 16.4 ms | 3 |
+| 256 | 143.2 ms | 38.3 ms | 3 |
+| 512 | 397.1 ms | 77.2 ms | 3 |
+| 1024 | 1170.7 ms | 136.2 ms | 3 |
+| 2048 | 3474.4 ms | 262.9 ms | 3 |
 
 ## What the approximation costs
 
@@ -217,6 +254,22 @@ cells* rejects a whole block of pairs on one test where the old traversal
 rejected one body's share of them and had to re-derive the bound for the next
 body. Measured on the same scenes, the search itself went from 67.1 ms to 34.0
 at two thousand bodies, and the win over the pairwise scan from 3.5x to 8.2x.
+
+**Sub-stepping is global, and most of it is paid for by bodies that did not ask
+for it** — but the bill is small where it can be seen. Every scene the interface
+offers takes *one* sub-step, so on eight of the ten scenes measured above
+per-body stepping would save exactly nothing. On the Galaxy preset the rule asks
+for three, the median body needs one, and 65% of the body-steps are waste: 3.5 ms
+of a frame that has seven to spare. At two thousand bodies the same waste is
+worth 49 ms, which is real, and it is a scene the app does not offer and could
+not draw at an interactive rate anyway.
+
+The case where it bites is a scene with one tight pair in it: a hundred-fold
+difference in timescale between the closest pair and everything else takes the
+count to ten and the waste to 88%. That is reachable — drop a pile of bodies in
+bounce mode and it stays that way — and it is the argument for roadmap M15, held
+against the three contracts per-body stepping would break. See M15 for why it is
+measured and not built.
 
 **Drawing is not the wall, and the thing that was is now gone.** The galaxy
 preset ran at 35fps with a frame that profiled as 85% *field sampling* — on a
