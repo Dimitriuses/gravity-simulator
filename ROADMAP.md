@@ -785,6 +785,107 @@ the arc joining them — always, at every ring size — so the pieces overlapped
 widening the ring could never fix it. The slack has to go in the slot, not the
 radius.
 
+## M17 — Overlays that work at any scale
+
+*Medium.* Two gaps with one cause: the field overlay's numbers were calibrated
+against the hand-built scenes, where masses run to thousands and forces to
+units, and they do not survive a scene in real units or a mode that draws a
+different quantity.
+
+- **The field cannot draw the solar system** — *medium*, and the more important
+  of the two, because it is a whole feature being unavailable rather than a
+  refinement missing. `VectorField` discards a sample whose force is below an
+  absolute `MIN_FORCE` of 0.001 while it is *deciding where to sample*, and in
+  the solar system preset the field at the Earth's distance is 6e-7. The preset
+  therefore ships with the overlay switched off (M14), which is honest and not a
+  fix.
+
+  The threshold is absolute because it is applied before any range exists to
+  compare against — the sampler is choosing where to look, and the strongest
+  sample is not known until it has looked. The fix is therefore a first pass
+  that finds the range at coarse spacing and a second that samples against it,
+  which is the shape `contours.ts` already uses, or a floor derived from the
+  scene's own masses and extent rather than from a constant. M13's per-body
+  arrows are the precedent: the two constants that used to gate *those* are
+  gone, and the arrows are scaled against the frame's own range instead.
+
+- **The scale lock does not reach the potential modes** — *small*. `Lock arrow
+  scale` (M13) pins a *force* range, so contours and the heightmap ignore it and
+  go on normalizing per frame; a force range applied to a potential would be a
+  number in the wrong units. What is missing is a second pinned range in those
+  modes' own units, and a legend that says which of the two it is showing —
+  which it already knows how to do.
+
+**What would say it is done**: the solar system preset with the field overlay on
+and arrows that mean something, and a smoke check that switches it on there and
+counts them — the mirror of the check that currently asserts the legend admits
+the overlay is off.
+
+## M18 — A scheme that is symplectic *and* accurate in phase
+
+*Medium*, and the reason it is worth doing is written in three files already.
+
+Velocity Verlet bounds its energy error and turns the orbit instead: on the
+two-body problem, where the perihelion provably does not move, it invents
+-1,679″ per century at a twentieth of a day. RK4 gets the phase right and lets
+energy drift in one direction, a part in 10⁹ per century here but unbounded in
+principle. So the advice this project gives is *watch with Verlet, measure with
+RK4*, and it appears in [`KNOWNISSUES.md`](KNOWNISSUES.md),
+[`INTEGRATORS.md`](INTEGRATORS.md), [`EPHEMERIS.md`](EPHEMERIS.md) and
+[`CLAUDE.md`](CLAUDE.md). A scheme that is both would make the advice
+unnecessary.
+
+Fourth-order symplectic integrators are a known family rather than a research
+problem — Forest–Ruth and Yoshida's compositions are three or four velocity
+Verlet steps with carefully chosen weights, which is a small amount of code on
+top of the scheme already here. The cost is force evaluations per step: three or
+four, against RK4's four and Verlet's one, so it would be an *option* beside the
+others rather than a new default.
+
+**This project already owns both measurements that would judge one**, which is
+most of why it is worth doing rather than reading about:
+
+- `npm run compare` measures convergence order by halving the step and watching
+  the error fall — a fourth-order scheme must show it falling by 16.
+- `npm run ephemeris` runs the two-body control that isolates a scheme's
+  invented precession, and it must report near zero where Verlet reports
+  thousands of arcseconds — while energy stays bounded over a long run, which is
+  the half RK4 fails.
+
+**The trap to avoid** is the one M1 already fell into once: a composition with a
+wrong weight is still *a* scheme, and it will integrate, conserve momentum, and
+look plausible. Convergence order is the check that catches it, and it is the
+check to write first.
+
+## M19 — Small things worth doing eventually
+
+*Small*, all three, and none of them urgent. Grouped because they are the same
+kind of work: something is known to be avoidable and is not being avoided.
+
+- **A link is as long as the scene is.** About 55 characters a body, so the
+  300-body galaxy is 16,000 characters — fine in an address bar, too long for
+  most chat clients, and the app says so above 2,000 rather than pretending. The
+  format is deliberately plain text so a mangled link can be diagnosed by
+  reading it, and that is worth keeping for small scenes; a compact encoding for
+  large ones would be a second format, with everything a second format implies.
+  Quantising the numbers is the cheaper half: bodies are placed by mouse, so
+  three significant figures carry every bit of precision anyone actually chose.
+- **The debug overlay costs a full pairwise pass.** `diagnostics()` sums the
+  potential over every pair, which is the cost Barnes-Hut exists to avoid. It is
+  computed only while the overlay is up and only four times a second, so it is
+  bounded — but the tree could answer it approximately for a readout whose last
+  digit nobody is reading, and at a few thousand bodies the difference would
+  show. The catch worth respecting: an *approximate* energy in a readout whose
+  purpose is measuring drift needs its approximation stated, or it will be
+  mistaken for the drift it is meant to reveal.
+- **There is no formatter.** Adding one rewrites every file in the project in a
+  single commit, which is why there is not one; the layout is consistent enough
+  to describe without it (two-space indent, code under 100 columns bar eight
+  lines, comments wrapped at 80). This is a decision to take deliberately or
+  not at all — the reason to take it is that it removes a class of review
+  comment forever, and the reason not to is that it makes every line in the
+  history someone else's.
+
 ## M10 — Deliberately deferred
 
 Recorded so the omissions read as decisions rather than oversights. Each one
@@ -811,6 +912,13 @@ which is exactly what happened to the ephemeris comparison, now M8.
   every size.
 - **Relativistic corrections.** Precise, invisible at these scales, and would
   make the simulation slower and no more instructive.
+- **Tidal torque.** Gravity applies no torque here, so a body's spin changes
+  only at contact: nothing spins up or down by orbiting, and there are no tides.
+  A tidal torque needs a body with a *shape* and an orientation that means
+  something, and every body here is a disc whose radius is a function of its
+  mass alone — so this is not a term to add to the force law but a different
+  model of what a body is. Reconsider if bodies ever stop being points with a
+  radius attached.
 - **Alternative force laws** (inverse-cube, spring). A one-line change to
   `gravitationalForce`, but every calibrated constant in the renderer and the
   field sampler assumes 1/r². Cheap to add, not cheap to make *look* right.

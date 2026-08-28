@@ -3,6 +3,33 @@
 Measured, reproducible limitations of the current build. Anything here is known
 and either scheduled in [`ROADMAP.md`](ROADMAP.md) or deliberately accepted.
 
+Every entry is one of three things, and the index says which:
+
+- **Resolved** — it was a defect, it was fixed, and the entry is kept because
+  the measurement that found it is worth having and because the fix has a shape
+  that can be undone by accident.
+- **Accepted** — a property of the model rather than a defect. Nothing is
+  planned, and the reason is in the entry.
+- **Open** — work that has not been done, with the milestone that will do it.
+
+| | entry | status |
+|---|---|---|
+| 1 | Tight orbits are the least accurate | **Resolved** (M1); the floor at ~25 steps an orbit is **accepted** |
+| 2 | Which scheme bounds its error, and which does not | **Accepted** — and **open** in one respect: no scheme here is both symplectic and accurate in phase, which is **M18** |
+| 3 | Contacts are resolved, but crudely | **Resolved** (M2, M6, M12, M16); no tidal torque is **accepted**, in M10 |
+| 4 | Arrow length is relative | **Resolved** (M5, M13); the lock not reaching the potential modes is **open**, M17 |
+| 5 | Saving happens on its own; restoring does not | **Resolved** (M4, M11); the length of a link for a large scene is **open**, M19 |
+| 6 | Performance ceiling | **Measured** (M3, M7, M15) — the field's sample budget is **accepted**, per-body stepping **declined with numbers** |
+| 7 | The default integrator turns orbits that should not turn | **Accepted** as a property, and the reason **M18** exists |
+| 8 | The solar system model is flat, and Newtonian | **Accepted** (M10); the windows that do not settle are **accepted** (M14) |
+| 9 | The debug overlay costs a full pairwise pass | **Open**, small — M19 |
+| 10 | The solar system scene is to scale in distance, not size or time | **Accepted**; the field overlay being unable to draw it is **open**, M17 |
+| 11 | Barnes-Hut gives up exact momentum conservation | **Accepted** (M10) |
+| 12 | Zooming out far in uniform mode coarsens the grid | **Accepted** |
+| 13 | Desktop only | **Accepted** (M10) |
+| 14 | Very short windows scroll the control panel | **Resolved** (M9, M13) |
+| 15 | The linter is narrow, and there is no formatter | **Accepted**, and the formatter is a decision rather than a defect — M19 |
+
 ---
 
 ## Tight orbits are the least accurate, and there is a floor on how tight
@@ -122,7 +149,10 @@ What the model still does not include:
   the camera allows.
 - **Gravity applies no torque.** A body is a point mass to the force law, so
   spin changes only at contact — there are no tidal effects, and nothing spins
-  up or down by orbiting.
+  up or down by orbiting. Accepted rather than open: a tidal torque needs a body
+  with a *shape*, and every body here is a disc whose radius is a function of
+  its mass alone. Roadmap M10 names it with the rest of what is deliberately
+  not being done.
 - **A merged body's trail has a gap in it**, where the survivor was moved to the
   pair's centre of mass. The gap is deliberate: the body was teleported there,
   and a line across it would claim a path it never took. It used to be drawn as
@@ -149,11 +179,13 @@ force per unit mass — and updates them every frame (roadmap M5). What remains:
   scale on a collapsing scene saturates to red and on an escaping one fades to
   nothing — the relative version is what keeps the picture legible while the
   scene is changing, and the lock is what makes two moments comparable.
-- **The lock does not reach the potential modes.** Contours and the heightmap
-  draw potential rather than force, so a range pinned in an arrow mode would be
-  a number in the wrong units; they keep normalizing per frame and the legend
-  keeps reporting their own range. Distance, meanwhile, has an absolute scale in
-  every mode: the ruler along the bottom of the canvas.
+- **The lock does not reach the potential modes** — *open, roadmap M17*.
+  Contours and the heightmap draw potential rather than force, so a range pinned
+  in an arrow mode would be a number in the wrong units; they keep normalizing
+  per frame and the legend keeps reporting their own range. What is missing is a
+  second lock in the units those modes work in, not a change to the first one.
+  Distance, meanwhile, has an absolute scale in every mode: the ruler along the
+  bottom of the canvas.
 
 ## Saving happens on its own; restoring does not
 
@@ -171,11 +203,11 @@ interrupting a simulation for.
 
 Two smaller edges:
 
-- A link is as long as the scene is: about 210 characters for a four-body scene,
-  and about 55 per body after that. The 300-body galaxy is roughly 16,000
-  characters, which is fine in the address bar and too long for most chat
-  clients. Above 2,000 characters the app says so rather than pretending
-  otherwise.
+- A link is as long as the scene is — *open, roadmap M19*: about 210 characters
+  for a four-body scene, and about 55 per body after that. The 300-body galaxy
+  is roughly 16,000 characters, which is fine in the address bar and too long
+  for most chat clients. Above 2,000 characters the app says so rather than
+  pretending otherwise, which is honest and not the same as fixing it.
 
 ## Performance ceiling
 
@@ -235,6 +267,12 @@ buried three times over. Anything measured out of this simulation across many
 orbits belongs in RK4, checked at two step sizes. See
 [`EPHEMERIS.md`](EPHEMERIS.md) and [`INTEGRATORS.md`](INTEGRATORS.md).
 
+What the three schemes here do *not* include is one that is symplectic **and**
+accurate in phase, which would make "watch with one, measure with another"
+unnecessary. That is roadmap **M18**: it is a known family of schemes rather
+than a research problem, and this project already owns both measurements that
+would judge one.
+
 ## The solar system model is flat, and Newtonian
 
 Both on purpose, both stated wherever a number from it is published. The
@@ -265,9 +303,10 @@ within 10%. Two rows still do not settle, and both are stated in
 
 ## The debug overlay costs a full pairwise pass
 
-`D` shows energy, momentum and angular momentum, and the potential term in the
-first of those is a sum over every *pair* — the one cost Barnes-Hut exists to
-avoid. It is computed four times a second and only while the overlay is up, so a
+*Open, roadmap M19.* `D` shows energy, momentum and angular momentum, and the
+potential term in the first of those is a sum over every *pair* — the one cost
+Barnes-Hut exists to avoid, and one the tree could do approximately for a
+readout that is already only refreshed four times a second. It is computed four times a second and only while the overlay is up, so a
 scene of a few hundred bodies pays for it about as often as it can be read; at a
 few thousand, leaving the overlay open is measurably slower than not.
 
@@ -288,10 +327,10 @@ than hidden:
   `timeStep` to 110 — about twelve hours a frame, an Earth year in ten seconds.
   That is a display choice rather than a change to the physics, and the adaptive
   rule still subdivides it when a close pair needs it.
-- **The field overlay does not work here.** `VectorField` drops samples whose
-  force is below an absolute 0.001, and the field at the Earth's distance from a
-  Sun weighing 0.0126 units is 6e-7 — so the overlay would be empty, and the
-  scene ships with it off. The threshold is absolute because the sampler applies
+- **The field overlay does not work here** — *open, roadmap M17*. `VectorField`
+  drops samples whose force is below an absolute 0.001, and the field at the
+  Earth's distance from a Sun weighing 0.0126 units is 6e-7 — so the overlay
+  would be empty, and the scene ships with it off. The threshold is absolute because the sampler applies
   it while deciding where to sample, before it knows the range. The per-body
   force and velocity arrows *do* work: they are scaled against the range present
   in the frame, so they needed no such number once the constants that used to

@@ -363,12 +363,15 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Every milestone on [`ROADMAP.md`](ROADMAP.md) is now closed — the last of them,
-fragmentation, having been deferred four times before it was written down as
-four decisions and made. What remains there is a record of what was done,
-including what was tried and abandoned, and a list of what is deliberately not
-being done with the reason attached to each, so that when a reason expires the
-item can be reconsidered.
+Active. Sixteen milestones are closed, including one that was measured and
+declined rather than built, and [`ROADMAP.md`](ROADMAP.md) keeps all of them as
+a record of what was tried as well as what worked. Three are open, in priority
+order: overlays that work at the solar system's scale as well as the hand-built
+scenes', an integration scheme that is symplectic *and* accurate in phase — so
+that "watch with one, measure with another" stops being necessary — and a group
+of small things. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
+limitation as resolved, accepted or open, and says which milestone owns the open
+ones.
 
 ## Licence
 
