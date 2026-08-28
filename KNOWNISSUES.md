@@ -133,12 +133,17 @@ The consequence used to be that the picture had no absolute reading at all. The
 legend now prints the two ends of the range on screen — strong and weak, in
 force per unit mass — and updates them every frame (roadmap M5). What remains:
 
-- **Lengths are still frame-relative.** Two frames cannot be compared by eye,
-  only by the numbers beside them. Distance, at least, now has a ruler: a bar
-  along the bottom of the canvas reading a round number of world units. The
-  proposal for force is a scale that can be *locked* to the range as it stands —
-  roadmap M13, which also covers the other two places the simulation knows a
-  number and the screen does not say it.
+- **Lengths are frame-relative until you say otherwise.** *Lock arrow scale*
+  (roadmap M13) pins the range to what is on screen when it is set, and the
+  legend says when it is pinned. Unlocked is still the default, because a locked
+  scale on a collapsing scene saturates to red and on an escaping one fades to
+  nothing — the relative version is what keeps the picture legible while the
+  scene is changing, and the lock is what makes two moments comparable.
+- **The lock does not reach the potential modes.** Contours and the heightmap
+  draw potential rather than force, so a range pinned in an arrow mode would be
+  a number in the wrong units; they keep normalizing per frame and the legend
+  keeps reporting their own range. Distance, meanwhile, has an absolute scale in
+  every mode: the ruler along the bottom of the canvas.
 
 ## Saving happens on its own; restoring does not
 
@@ -292,11 +297,12 @@ from 776px down to 665px; the smoke test measures both at boot.
 Opening all three at once still makes the panel taller than the space it has,
 but that no longer hides anything: the action row is sticky inside it, so Clear
 All and Pause sit at the bottom edge whatever the scroll position, and a short
-window tightens the panel's spacing rather than its contents. What is still
-true is that a single column is a single column — a fourth section would push
-the *middle* of the panel out of view, and the answer to that is a second column
-rather than more folding. Roadmap M13, where it becomes work the moment
-something needs adding to the panel.
+window tightens the panel's spacing rather than its contents. And since M13 it is not always a single column: when one has stopped fitting and
+the window is at least 1000px wide, the sections flow into two. That is measured
+in JavaScript rather than expressed as a media query, because the condition is
+whether the panel fits — which depends on how many sections are open, and CSS
+cannot ask. Below 1000px it still scrolls, which is what the wheel-over-panel
+check in the smoke test now exercises.
 
 Width is not a factor. Measured across 320–1280px with the particle list
 populated, the info panel never exceeds 127px wide and the legend 134px, so the

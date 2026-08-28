@@ -57,7 +57,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 268 tests run under Node in about nineteen
+plain TypeScript, which is why 271 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -381,6 +381,32 @@ instead of imposed on everybody.
 Reads and writes are both wrapped in try/catch and fail silently. Storage can be
 full, or disabled outright in a private window, and neither is a reason to
 interrupt a running simulation.
+
+### A locked scale is captured mid-frame, and only covers the arrows
+
+`Renderer.lockScale()` does not pin anything on the spot: the magnitude ranges
+exist only part-way through a draw pass, so the request sets a flag and the next
+pass that computes a range fills it in. Either pass may be the one — the field
+can be hidden, or the per-body arrows can be — so `captureLock` merges into
+whatever is already there and clears the flag once both halves are present.
+
+The lock is force-shaped. Contours and the heightmap draw *potential*, so they
+ignore it and go on publishing their own range; the legend has to say which of
+the two the numbers belong to, because a locked scale and an unlocked one look
+identical until the scene moves under them.
+
+### The panel's second column is measured, not media-queried
+
+`updatePanelColumns()` in `main` takes the class *off*, measures whether the
+panel overflows, and puts it back — because the condition is not the window's
+size but whether one column still fits, which depends on how many `<details>`
+sections the viewer has opened. CSS cannot ask that. It runs on the events that
+can change the answer, a resize or a section toggling, and never per frame: it
+forces a reflow.
+
+The sticky action row lives outside `#panelBody` deliberately. `position:
+sticky` does not work inside a multi-column container, so the row would stop
+sticking the moment the second column appeared.
 
 ### A frame-relative picture needs its numbers printed
 

@@ -343,7 +343,11 @@ try {
   // The wheel belongs to whatever is under it. Claiming it unconditionally
   // meant the control panel could not be scrolled at all, which matters
   // because it scrolls internally in a short window.
-  await page.setViewportSize({ width: VIEWPORT.width, height: 620 });
+  //
+  // Narrow as well as short, deliberately: above 1000px the panel answers a
+  // squeeze by taking a second column instead of scrolling (M13), and a check
+  // about scrolling needs a window where scrolling is what happens.
+  await page.setViewportSize({ width: 900, height: 620 });
   await page.waitForTimeout(300);
   const zoomBeforeWheel = await page.evaluate(
     () => document.getElementById('zoomValue').textContent
@@ -1210,6 +1214,140 @@ try {
     await page.check('#showTrails');
     await page.check('#showVectors');
     await page.check('#showParticleVectors');
+    await page.waitForTimeout(300);
+  }
+
+  // ── Absolute readings ──────────────────────────────────────────────────────
+  // Arrow length and hue are normalized against the range present in the
+  // current frame, so the same red means something different from one frame to
+  // the next. The lock pins that range; the legend has to say which of the two
+  // it is showing, because a locked scale looks exactly like an unlocked one.
+  {
+    await page.selectOption('#presetSelect', 'star-and-planets');
+    await page.waitForTimeout(900);
+    await page.evaluate(() => {
+      document.getElementById('renderSection').open = true;
+    });
+    await page.waitForTimeout(200);
+
+    const beforeLock = await page.textContent('#legendMax');
+    await page.check('#lockScale');
+    await page.waitForTimeout(400);
+
+    const lockedLabel = await page.textContent('#legendScale');
+    check(
+      'the legend says when the scale is locked',
+      /locked/.test(lockedLabel ?? ''),
+      `legend reads "${lockedLabel}"`
+    );
+
+    // Something that moves the range a long way: a body heavier than the
+    // primary, dropped next to it.
+    await page.locator('#massSlider').fill('5000');
+    await page.mouse.click(760, 300);
+    await page.waitForTimeout(1500);
+
+    const whileLocked = await page.textContent('#legendMax');
+    check(
+      'and the numbers stay put while it is',
+      whileLocked === beforeLock,
+      `${whileLocked} against ${beforeLock} before the scene changed`
+    );
+
+    await page.uncheck('#lockScale');
+    await page.waitForTimeout(600);
+    const afterUnlock = await page.textContent('#legendMax');
+    check(
+      'unlocking lets them follow the frame again',
+      afterUnlock !== whileLocked,
+      `${afterUnlock} against ${whileLocked} while locked`
+    );
+
+    const unlockedLabel = await page.textContent('#legendScale');
+    check(
+      'and the legend stops claiming to be locked',
+      !/locked/.test(unlockedLabel ?? ''),
+      `legend reads "${unlockedLabel}"`
+    );
+
+    // The per-body readout: the overlay reports the system, this reports one
+    // body, and neither existed before M13.
+    //
+    // Rebuilt first, because the scene above has had a body heavier than its
+    // primary dropped into it and the primary is no longer where it started.
+    await page.click('#reloadPresetBtn');
+    await page.waitForTimeout(700);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(640, 400);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(500);
+
+    const readout = await page.textContent('#followReadout');
+    check(
+      'a followed body reports its own numbers',
+      /mass \d+ · speed [\d.]+ · force [\d.e+-]+ · \d+ from barycentre/.test(readout ?? ''),
+      `readout reads "${readout}"`
+    );
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const cleared = await page.textContent('#followReadout');
+    check('and stops reporting once the camera lets go', cleared === '', `readout "${cleared}"`);
+
+    await page.locator('#massSlider').fill('200');
+  }
+
+  // ── A second column when one stops fitting ─────────────────────────────────
+  // Not a media query: the question is whether the panel still fits, which
+  // depends on how many sections are open, and CSS cannot ask that.
+  {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+      await page.evaluate((section) => {
+        document.getElementById(section).open = false;
+      }, id);
+    }
+    await page.waitForTimeout(300);
+
+    const closed = await page.evaluate(() => {
+      const panel = document.getElementById('controls');
+      return {
+        columns: panel.classList.contains('two-column'),
+        width: Math.round(panel.getBoundingClientRect().width),
+      };
+    });
+    check(
+      'the panel stays a single column while one is enough',
+      !closed.columns,
+      `${closed.width}px wide with the sections folded`
+    );
+
+    for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+      await page.evaluate((section) => {
+        document.getElementById(section).open = true;
+      }, id);
+    }
+    await page.waitForTimeout(400);
+
+    const opened = await page.evaluate(() => {
+      const panel = document.getElementById('controls');
+      return {
+        columns: panel.classList.contains('two-column'),
+        width: Math.round(panel.getBoundingClientRect().width),
+        scrolls: panel.scrollHeight > panel.clientHeight + 1,
+      };
+    });
+    check(
+      'and takes a second one when every section is open, instead of scrolling',
+      opened.columns && !opened.scrolls && opened.width > closed.width,
+      `${opened.width}px wide, scrolls=${opened.scrolls}`
+    );
+
+    for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+      await page.evaluate((section) => {
+        document.getElementById(section).open = false;
+      }, id);
+    }
     await page.waitForTimeout(300);
   }
 

@@ -421,6 +421,28 @@ export class PhysicsEngine implements ForceField {
   }
 
   /**
+   * The system's centre of mass.
+   *
+   * What a single body's position is worth measuring against: "310 units from
+   * the origin" says nothing once the camera has been moved, while "310 units
+   * from the barycentre" is a statement about the system. Cheap — one pass, no
+   * pairs — unlike `diagnostics()` above.
+   */
+  barycentre(): Vector2D {
+    let mass = 0;
+    let x = 0;
+    let y = 0;
+
+    for (const particle of this.particles) {
+      mass += particle.mass;
+      x += particle.mass * particle.position.x;
+      y += particle.mass * particle.position.y;
+    }
+
+    return mass > 0 ? new Vector2D(x / mass, y / mass) : new Vector2D(0, 0);
+  }
+
+  /**
    * Get particle at a specific position (for mouse interaction)
    */
   getParticleAt(x: number, y: number, threshold: number = 30): Particle | null {

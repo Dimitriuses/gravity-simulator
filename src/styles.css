@@ -247,6 +247,37 @@ body {
   }
 }
 
+/*
+ * A second column, rather than more folding.
+ *
+ * The sticky action row means nothing in the panel is unreachable, but with
+ * every section open the *middle* of it goes past the fold, and scrolling to
+ * find a control you cannot see is not much better than not having it. Where
+ * there is width to spare, the sections flow into two columns instead.
+ *
+ * The class is applied by `main.ts` and not by a media query, because the
+ * condition is not "how big is the window" but "does the panel still fit in
+ * it" — which depends on how many sections are open, and CSS cannot ask.
+ *
+ * Multi-column rather than grid: the panel's contents are a stack of blocks of
+ * unequal height, which is what `column-count` is for, and it needs no decision
+ * about which section goes where. `break-inside: avoid` is what stops a slider
+ * being split from its label across the gap. The action row is outside
+ * `#panelBody`, so it stays sticky — it could not be inside a multicol.
+ */
+#controls.two-column {
+  max-width: 520px;
+}
+#controls.two-column #panelBody {
+  column-count: 2;
+  column-gap: 16px;
+  column-rule: 1px solid #e4e4e4;
+}
+#controls.two-column #panelBody > *,
+#controls.two-column #panelBody label {
+  break-inside: avoid;
+}
+
 /* Narrow windows: the sliders are the widest thing in the panel and the first
    thing that can afford to shrink. Below this the canvas is too small to aim
    at anyway — see the note on touch support in ROADMAP.md. */

@@ -401,3 +401,42 @@ describe('diagnostics on a balanced scene', () => {
     expect(angularScale).toBeCloseTo(2 * 200 * 100 * 4, 12);
   });
 });
+
+describe('barycentre', () => {
+  it('is the mass-weighted middle, not the middle', () => {
+    const engine = new PhysicsEngine(30);
+    engine.addParticle(new Particle(0, 0, 300));
+    engine.addParticle(new Particle(400, 0, 100));
+
+    const centre = engine.barycentre();
+
+    expect(centre.x).toBeCloseTo(100, 12);
+    expect(centre.y).toBeCloseTo(0, 12);
+  });
+
+  it('answers for an empty scene rather than dividing by zero', () => {
+    const centre = new PhysicsEngine(30).barycentre();
+
+    expect(centre.x).toBe(0);
+    expect(centre.y).toBe(0);
+  });
+
+  it('stays put while the bodies orbit around it', () => {
+    // Which is what makes it worth measuring a body's distance from: the
+    // origin is wherever the scene happened to be built, the barycentre is a
+    // fact about the system. Internal forces cannot move it, so any drift here
+    // is the integrator's.
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    const separation = 400;
+    const speed = Math.sqrt((SIMULATION_G * 200) / (2 * separation));
+    engine.addParticle(new Particle(-separation / 2, 0, 200, 0, speed));
+    engine.addParticle(new Particle(separation / 2, 0, 200, 0, -speed));
+
+    const before = engine.barycentre();
+    for (let i = 0; i < 3000; i++) engine.step();
+    const after = engine.barycentre();
+
+    expect(after.sub(before).magnitude()).toBeLessThan(1e-9);
+  });
+});

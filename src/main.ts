@@ -37,6 +37,15 @@ const FOLLOW_PICK_RADIUS_PX = 24;
 const DEBUG_REFRESH_MS = 250;
 
 /**
+ * How wide the window has to be before the control panel is allowed a second
+ * column, in CSS pixels.
+ *
+ * Below this the panel would take a quarter of the screen and the canvas is
+ * already the thing in short supply.
+ */
+const PANEL_TWO_COLUMN_PX = 1000;
+
+/**
  * How many bodies the list names individually before summarising the rest.
  *
  * The panel is 250px wide and scrolls at 105px tall, so a list of hundreds was
@@ -134,6 +143,8 @@ const sketch = (p: p5) => {
   const legendRamp = el('legendRamp');
   const subStepCount = el('subStepCount');
   const forceModeLabel = el('forceModeLabel');
+  const lockScaleCheckbox = el<HTMLInputElement>('lockScale');
+  const followReadout = el('followReadout');
   const showVectorsCheckbox = el<HTMLInputElement>('showVectors');
   const showParticleVectorsCheckbox = el<HTMLInputElement>('showParticleVectors');
   const showTrailsCheckbox = el<HTMLInputElement>('showTrails');
@@ -170,6 +181,7 @@ const sketch = (p: p5) => {
   let lastFrameAt = 0;
   let debugBaseline: Diagnostics | null = null;
   let debugRefreshedAt = 0;
+  let readoutRefreshedAt = 0;
 
   p.setup = () => {
     const canvas = p.createCanvas(p.windowWidth, p.windowHeight);
@@ -192,6 +204,11 @@ const sketch = (p: p5) => {
     populateForceModeOptions();
 
     setupUI();
+
+    // Opening a section is the other way the panel's height changes.
+    for (const section of document.querySelectorAll('#controls details')) {
+      section.addEventListener('toggle', updatePanelColumns);
+    }
     // Read the simulation's starting values out of the markup rather than
     // duplicating them here, so the controls and the simulation cannot disagree.
     // That includes the opening scene, which is whichever preset is selected.
@@ -203,6 +220,7 @@ const sketch = (p: p5) => {
 
     updateObjectCount();
     updateZoomDisplay();
+    updatePanelColumns();
   };
 
   p.draw = () => {
@@ -267,6 +285,11 @@ const sketch = (p: p5) => {
     if (debugVisible) {
       refreshDebugLines();
       renderer.drawDebugOverlay(debugLines);
+    }
+
+    if (performance.now() - readoutRefreshedAt >= DEBUG_REFRESH_MS) {
+      readoutRefreshedAt = performance.now();
+      refreshFollowReadout();
     }
   };
 
@@ -392,6 +415,7 @@ const sketch = (p: p5) => {
     if (!engine.particles.includes(followed)) {
       followed = null;
       updateFollowStatus('The followed body was absorbed — camera released');
+      refreshFollowReadout();
       return;
     }
 
@@ -401,6 +425,7 @@ const sketch = (p: p5) => {
   function setFollowed(particle: Particle | null): void {
     followed = particle;
     updateFollowStatus();
+    refreshFollowReadout();
     if (particle) camera.centerOn(particle.position.x, particle.position.y);
   }
 
@@ -433,6 +458,44 @@ const sketch = (p: p5) => {
    * is a full O(n²) pass, the one cost the tree exists to avoid, and digits
    * changing sixty times a second cannot be read anyway.
    */
+  /**
+   * What the followed body is doing, in numbers.
+   *
+   * The debug overlay reports the system; this reports one body, and it exists
+   * because the simulation knows all of it and the screen said none of it. Its
+   * distance is measured from the barycentre rather than the origin: the origin
+   * is wherever the scene happened to be built, while the barycentre is a fact
+   * about the system.
+   *
+   * Refreshed on the overlay's cadence and only while something is followed —
+   * text nobody is looking at is text not worth laying out sixty times a
+   * second.
+   */
+  function refreshFollowReadout(): void {
+    if (!followed) {
+      if (followReadout.textContent !== '') followReadout.textContent = '';
+      return;
+    }
+
+    const centre = engine.barycentre();
+    const speed = followed.velocity.magnitude();
+    const force = followed.netForce.magnitude();
+    const distance = followed.position.sub(centre).magnitude();
+
+    const parts = [
+      `mass ${Math.round(followed.mass)}`,
+      `speed ${speed.toFixed(2)}`,
+      `force ${force.toPrecision(3)}`,
+      `${distance.toFixed(0)} from barycentre`,
+    ];
+    if (followed.angularVelocity !== 0) {
+      parts.push(`spin ${followed.angularVelocity.toFixed(4)}`);
+    }
+
+    const text = parts.join(' · ');
+    if (followReadout.textContent !== text) followReadout.textContent = text;
+  }
+
   function refreshDebugLines(): void {
     const now = performance.now();
     if (now - debugRefreshedAt < DEBUG_REFRESH_MS) return;
@@ -490,7 +553,28 @@ const sketch = (p: p5) => {
 
   p.windowResized = () => {
     p.resizeCanvas(p.windowWidth, p.windowHeight);
+    updatePanelColumns();
   };
+
+  /**
+   * Give the control panel a second column when one column no longer fits.
+   *
+   * Not a media query, because the question is not how big the window is but
+   * whether the panel still fits inside it — which depends on how many sections
+   * the viewer has opened. The measurement has to be taken with the class off,
+   * or it would only ever report on the layout it is already in; that costs one
+   * forced reflow, on an event that happens when someone resizes a window or
+   * opens a section rather than every frame.
+   */
+  function updatePanelColumns(): void {
+    const panel = document.getElementById('controls');
+    if (!panel) return;
+
+    panel.classList.remove('two-column');
+    const overflows = panel.scrollHeight > panel.clientHeight + 1;
+
+    panel.classList.toggle('two-column', overflows && window.innerWidth >= PANEL_TWO_COLUMN_PX);
+  }
 
   /**
    * Did this mouse event actually happen on the canvas?
@@ -542,6 +626,7 @@ const sketch = (p: p5) => {
     restitutionValue.textContent = engine.restitution.toFixed(2);
     engine.forceMode = forceModeSelect.value as ForceMode;
     loadPreset(presetSelect.value);
+    if (lockScaleCheckbox.checked) renderer.lockScale();
     renderer.showVectorField = showVectorsCheckbox.checked;
     renderer.showParticleVectors = showParticleVectorsCheckbox.checked;
     renderer.showTrails = showTrailsCheckbox.checked;
@@ -577,6 +662,13 @@ const sketch = (p: p5) => {
       const size = parseFloat(arrowSizeSlider.value);
       arrowSizeValue.textContent = size.toFixed(1);
       renderer.arrowSizeMultiplier = size;
+    });
+
+    lockScaleCheckbox.addEventListener('change', () => {
+      // Captured on the next frame that draws arrows, which is the only moment
+      // the ranges exist. Unlocking is immediate.
+      if (lockScaleCheckbox.checked) renderer.lockScale();
+      else renderer.unlockScale();
     });
 
     showVectorsCheckbox.addEventListener('change', () => {
@@ -1146,9 +1238,18 @@ const sketch = (p: p5) => {
 
     setLegendText(legendMax, format(scale.max));
     setLegendText(legendMin, format(scale.min));
+
+    // The lock pins force magnitudes, so it says nothing about a mode drawing
+    // potential — those keep reporting their own range, and the legend has to
+    // say which of the two the numbers above belong to.
+    const locked = renderer.scaleLock !== null && !showsPotential;
     setLegendText(
       legendScale,
-      showsPotential ? 'log scale, potential per unit mass' : 'log scale, force per unit mass'
+      showsPotential
+        ? 'log scale, potential per unit mass'
+        : locked
+          ? 'log scale, force per unit mass — locked'
+          : 'log scale, force per unit mass'
     );
   }
 

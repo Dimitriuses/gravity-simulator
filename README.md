@@ -70,7 +70,13 @@ inferred from how things move.
 - **A readout, on `D`** — frame rate, body count, sub-steps, what the solver is
   doing, and how far energy, momentum and angular momentum have drifted since
   you opened it. Which is the honest way to watch an integrator: a scheme in
-  trouble says so in those three numbers long before the picture looks wrong.
+  trouble says so in those three numbers long before the picture looks wrong. A
+  followed body reports its own numbers alongside them.
+- **A scale you can pin.** Arrow length and hue are normalized against the range
+  present in the current frame, which is what keeps them legible across the ~10⁶
+  span the sliders produce — and what stops two frames being comparable. *Lock
+  arrow scale* fixes the range where it stands, and the legend says when it is
+  fixed.
 - **Trails**, adjustable mass, field range, body scale and arrow scale, and a
   pause that keeps the force arrows live so you can inspect a frozen
   configuration.
@@ -105,6 +111,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Scroll wheel** | Zoom about the cursor, 10%–500% |
 | **Shift + left-click** a body | Follow it: the camera keeps it centred as it moves. Shift-click empty space, or press **Esc**, to let go |
 | **D** | Show or hide the debug readout |
+| **Lock arrow scale** | Pin arrow length and hue to the range on screen, so frames can be compared |
 | **Reset Camera** | Back to origin at 100% |
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
@@ -233,7 +240,7 @@ before trusting a change.
 ```bash
 npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 268 unit tests, headless, ~19s
+npm test            # 271 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -264,7 +271,7 @@ measurement is run through RK4 rather than the default integrator.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 92 properties, including that the background is the intended navy, that
+asserts 100 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -334,11 +341,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) is in priority order: putting
-absolute numbers on a picture that is currently frame-relative, a longer window
-for the ephemeris check, per-body time-stepping, and fragmentation — plus what
-is deliberately deferred, and why. Twelve milestones behind it are records of
-what was done, including what was tried and abandoned.
+Active development. [`ROADMAP.md`](ROADMAP.md) is in priority order: a longer
+window for the ephemeris check, per-body time-stepping, and fragmentation — plus
+what is deliberately deferred, and why. Thirteen milestones behind those are
+records of what was done, including what was tried and abandoned.
 
 ## Licence
 

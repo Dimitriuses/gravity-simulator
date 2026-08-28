@@ -122,6 +122,15 @@ const COLOR_PARTICLE_BODY = [150, 200, 255] as const;
 const COLOR_PARTICLE_EDGE = [200, 220, 255] as const;
 const COLOR_VELOCITY_PREVIEW = [255, 200, 0] as const;
 
+/** A magnitude range, pinned so that arrows mean the same thing between frames. */
+export interface LockedScales {
+  /** The field's own range, when the mode drawing it had one. */
+  field: { min: number; max: number } | null;
+  /** Net force across the bodies, and their speeds. */
+  force: { min: number; max: number };
+  speed: { min: number; max: number };
+}
+
 /**
  * Maps a magnitude onto 0..1 within the range present this frame, on a log
  * scale. Returns 0.5 when there is nothing to compare against, so a lone
@@ -173,6 +182,33 @@ export class Renderer {
    * colour is strong, but not how strong. This is what lets it say the number.
    */
   fieldScale: { min: number; max: number } | null = null;
+
+  /**
+   * A pinned set of magnitude ranges, or null to normalize per frame.
+   *
+   * Everything about the arrows is otherwise relative to the frame they are
+   * drawn in, which is what keeps them legible across the ~10⁶ span the sliders
+   * can produce and what makes two frames incomparable by eye. Pinning the
+   * range fixes that at the price the relative version was paying it for: a
+   * scene that collapses after the lock is set saturates, and one that flies
+   * apart fades out. Hence a control rather than a default, and hence the
+   * legend having to say which of the two it is showing.
+   *
+   * The field entry is only meaningful for the arrow modes. Contours and the
+   * heightmap draw *potential*, and streamlines have no magnitude at all, so
+   * the lock does not apply to them and they go on publishing their own range —
+   * a locked force range would be a number in the wrong units.
+   */
+  scaleLock: LockedScales | null = null;
+
+  /**
+   * Set when the viewer asks for a lock, cleared once a frame has filled it in.
+   *
+   * The ranges only exist part-way through a draw, so a lock asked for between
+   * frames has nothing to capture yet; this defers it by one frame rather than
+   * capturing an empty scale or making the caller wait for a callback.
+   */
+  private lockRequested = false;
 
   /** Reused between frames; see `drawHeightmap`. */
   private heightmapImage: p5.Image | null = null;
@@ -432,7 +468,13 @@ export class Renderer {
     }
     if (minMagnitude === Infinity) return;
 
-    this.fieldScale = { min: minMagnitude, max: maxMagnitude };
+    if (this.lockRequested) this.captureLock({ min: minMagnitude, max: maxMagnitude });
+
+    // The locked range if there is one, and this frame's otherwise. The legend
+    // reads `fieldScale`, so it prints whichever is actually in use rather than
+    // whichever the frame happened to contain.
+    const range = this.scaleLock?.field ?? { min: minMagnitude, max: maxMagnitude };
+    this.fieldScale = range;
 
     // One push for the whole pass rather than one per arrow — with a few
     // thousand samples a frame, the per-arrow state save was pure overhead.
@@ -440,7 +482,7 @@ export class Renderer {
     this.p.colorMode(this.p.HSB, 360, 100, 100, 100);
 
     for (const sample of samples) {
-      this.drawFieldArrow(sample.position, sample.force, minMagnitude, maxMagnitude);
+      this.drawFieldArrow(sample.position, sample.force, range.min, range.max);
     }
 
     this.p.pop();
@@ -541,8 +583,15 @@ export class Renderer {
     const forces = particles.map((p) => p.netForce.magnitude());
     const speeds = particles.map((p) => p.velocity.magnitude());
 
-    const forceRange = { min: Math.min(...forces), max: Math.max(...forces) };
-    const speedRange = { min: Math.min(...speeds), max: Math.max(...speeds) };
+    const frameForce = { min: Math.min(...forces), max: Math.max(...forces) };
+    const frameSpeed = { min: Math.min(...speeds), max: Math.max(...speeds) };
+
+    // A lock asked for while the field is hidden is captured here instead, so
+    // the per-body arrows can be pinned on their own.
+    if (this.lockRequested) this.captureLock(null, frameForce, frameSpeed);
+
+    const forceRange = this.scaleLock?.force ?? frameForce;
+    const speedRange = this.scaleLock?.speed ?? frameSpeed;
 
     this.p.push();
     for (const particle of particles) {
@@ -753,6 +802,50 @@ export class Renderer {
     this.p.textSize(11);
     this.p.text(label, this.p.width / 2, y + 6);
     this.p.pop();
+  }
+
+  /**
+   * Pin the arrow scales to whatever is on screen at the next opportunity.
+   *
+   * Takes effect on the next frame that actually draws arrows, which is also
+   * the only moment the ranges exist.
+   */
+  lockScale(): void {
+    this.lockRequested = true;
+  }
+
+  /** Go back to normalizing against each frame. */
+  unlockScale(): void {
+    this.lockRequested = false;
+    this.scaleLock = null;
+  }
+
+  /**
+   * Fill in the pending lock from the ranges a draw pass just computed.
+   *
+   * Whichever pass gets there first captures its own part and leaves sensible
+   * values for the rest: the field pass runs before the per-body pass, and
+   * either may be switched off, so neither can assume it is the one that will
+   * be asked.
+   */
+  private captureLock(
+    field: { min: number; max: number } | null,
+    force?: { min: number; max: number },
+    speed?: { min: number; max: number }
+  ): void {
+    const existing = this.scaleLock;
+
+    this.scaleLock = {
+      field: field ?? existing?.field ?? null,
+      force: force ?? existing?.force ?? { min: 0, max: 0 },
+      speed: speed ?? existing?.speed ?? { min: 0, max: 0 },
+    };
+
+    // Held until every pass that is going to draw this frame has contributed,
+    // which for a scene with both overlays on means the second of the two.
+    if (this.scaleLock.field !== null && this.scaleLock.force.max > 0) {
+      this.lockRequested = false;
+    }
   }
 
   /**

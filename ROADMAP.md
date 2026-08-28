@@ -522,38 +522,61 @@ way to see what the solver is doing.
   clear at 1280×620. Width was never a factor — measured from 320px up, the
   bottom pair never collide.
 
-## M13 — Reading the picture in absolute terms
+## M13 — Reading the picture in absolute terms — **done**
 
-*Medium.* Three things a viewer cannot currently do, which have the same shape:
-the simulation knows a number and the screen does not say it.
+Three things a viewer could not do, which had the same shape: the simulation
+knew a number and the screen did not say it.
 
-- **Arrow lengths are relative to the frame they are in** — *medium*. Length and
-  hue are normalized against the range of magnitudes present in the *current*
-  frame, which is what keeps them legible across the ~10⁶ span the sliders can
-  produce, and what makes two frames incomparable by eye. M5 gave the picture an
-  absolute reading by printing the range in the legend, and M11 gave distance a
-  fixed one with the ruler. Force has the first and not the second: you can look
-  up what the longest arrow is worth, and you still cannot compare it with the
-  longest arrow in the frame before.
+- ~~Arrow lengths are relative to the frame they are in.~~ **Done**, as a lock
+  rather than as a default. *Lock arrow scale* pins the normalization range to
+  what is on screen when it is set, so from that moment a longer arrow means a
+  larger force and two frames can be compared by eye. It cannot be the default
+  for the reason the relative version exists: a scene that collapses after the
+  lock saturates to a screen of red, and one that flies apart fades to nothing.
 
-  The proposal is a **lock**: a control that pins the normalization to the range
-  as it stands, so that from then on a longer arrow means a larger force, full
-  stop. It cannot be the default — a scene that collapses after the lock is set
-  saturates to a screen of red, and one that flies apart fades to nothing — so
-  the legend has to say it is locked, and to what, in the same place it prints
-  the range now.
-- **The followed body has no readout** — *small*. Shift-clicking a body already
-  singles it out for the camera (M9). Its mass, speed, distance from the
-  system's barycentre and net force are all known and none of them are shown;
-  the debug overlay reports the system, and there is nothing that reports one
-  body. The overlay's own machinery — computed only while it is up, four times a
-  second — is the right shape for this too.
-- **The control panel is still one column** — *small*. The sticky action row from
-  M9 means nothing is unreachable, but a fourth `<details>` section would push
-  the *middle* of the panel out of view, and the answer to that is a second
-  column at wide viewports rather than more folding. It becomes work when
-  something needs adding to the panel; it is recorded here so that the next
-  person to add a control knows which way to go.
+  The legend therefore says which of the two it is showing — *"log scale, force
+  per unit mass — locked"* — because a locked scale and an unlocked one look
+  identical until the scene changes under them.
+
+  Two details that fell out of building it. The lock is *captured during a draw
+  pass*, not when the checkbox changes: the ranges only exist part-way through a
+  frame, so asking between frames has nothing to capture, and the request waits
+  a frame rather than pinning an empty scale. And it covers the per-body force
+  and velocity arrows as well as the field's, since those are normalized the
+  same way and locking half a picture is worse than locking none of it.
+
+  It does **not** apply to contours or the heightmap: those draw *potential*,
+  and a force range pinned in one mode would be a number in the wrong units in
+  the other. They go on publishing their own range, and the legend goes on
+  saying so.
+- ~~The followed body has no readout.~~ **Done.** Shift-clicking a body already
+  singled it out for the camera; it now also reports its mass, speed, net force,
+  distance from the barycentre and — when it has any — its spin, on the debug
+  overlay's cadence and only while something is followed.
+
+  Distance is measured from the **barycentre** rather than the origin, which is
+  the whole reason `PhysicsEngine.barycentre()` exists: the origin is wherever
+  the scene happened to be built, while the barycentre is a fact about the
+  system that internal forces cannot move. A test pins exactly that — 3,000
+  steps of a binary orbit move it by less than 1e-9.
+- ~~The control panel is still one column.~~ **Done**, and measured rather than
+  guessed at. A media query cannot express the condition, because the question
+  is not how big the window is but whether the panel still fits inside it —
+  which depends on how many sections the viewer has opened. `main` measures the
+  panel against its own scroll height on the events that can change it (a
+  resize, a section folding) and adds the class when one column has stopped
+  fitting and the window is at least 1000px wide.
+
+  Multi-column rather than grid: the contents are a stack of blocks of unequal
+  height, which is what `column-count` is for, and it needs no decision about
+  which section goes where. The sticky action row stays outside it, since a
+  sticky element inside a multicol does not stick.
+
+**A check this displaced.** The smoke test had a case for the wheel scrolling
+the control panel rather than zooming the canvas, run at 1280×620 — a window
+where the panel now answers the squeeze by taking a second column instead of
+scrolling at all. It runs at 900×620 now, and the comment says why: a check
+about scrolling needs a window where scrolling is what happens.
 
 ## M14 — A longer ephemeris window
 
