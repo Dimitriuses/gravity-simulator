@@ -722,44 +722,68 @@ one definition rather than one per caller — the scan, the tree's search and th
 benchmark all use it — and `npm run bench` reports the attribution above every
 time it runs, which is what would notice if the answer ever changed.
 
-## M16 — Fragmentation
+## M16 — Fragmentation — **done**
 
-*Large*, and a design problem wearing a physics problem's clothes. It has been
-deferred since M2 with the same one-line reason each time; this is that reason
-written out, so that the next person to pick it up starts from the questions
-rather than from the intention.
+Deferred four times, from M2 through M6 and M12, each time with the same
+one-line reason: the fragments' number, sizes, velocities and spins are all
+free, and the conservation laws constrain them without deciding them. The
+milestone was written as the four decisions that had to be made. They are made,
+in [`src/fragmentation.ts`](src/fragmentation.ts), and the reasoning is attached
+to each constant rather than to this document.
 
-Merging is the easy direction: two bodies become one, and mass, momentum and
-angular momentum each have exactly one answer. Breaking one into several has no
-such answer — the fragments' number, their sizes, their velocities and their
-spins are all free, and the conservation laws constrain them without deciding
-them.
+**When.** A break-up needs an energy to compare against, and the simulation has
+no material strength to offer — a body is a point mass with a radius derived
+from it. What it does have is the energy it would take to pull the merged body
+apart against its own gravity, `G·M²/R`, which the model already implies. So an
+impact shatters when its kinetic energy *in the pair's own frame* exceeds that,
+and merges when it does not. That makes the new mode a superset of merging
+rather than a replacement: gentle contacts accrete, hard ones disrupt, which is
+the distinction planetary science draws as well. Because `R = 2·M^(1/3)`, the
+binding energy grows as `M^(5/3)` — a big body is harder to break, from the mass
+rule alone rather than from anything added.
 
-What would have to be decided:
+**How many.** Two pieces at the threshold, rising to five, from how far the
+impact exceeds what it takes to disperse them. This is the decision that was
+built twice. The first attempt derived the count from the physics — *the most
+pieces the energy can throw clear* — which turned out to be degenerate in a way
+only measurement showed: more pieces sit on a wider ring, a wider ring is easier
+to escape from, so the answer was always "all of them", and every break-up made
+five. The count now comes from the dispersal speed's margin over escape, in
+which energy goes as the square of speed, so √2 in speed is one more piece.
 
-- **When.** A break-up needs a threshold, and the natural one is the energy of
-  the impact against something like a binding energy — which this simulation
-  does not have, because a body is a point mass with a radius derived from it.
-  Inventing a strength parameter is inventing physics; deriving one from
-  `G·m²/r` is at least a defensible choice made once.
-- **How many, and how big.** Two equal halves is the only choice that needs no
-  parameters and looks least like a collision. A size distribution looks right
-  and is a free curve.
-- **How fast.** The fragments have to carry the pair's momentum and angular
-  momentum exactly — that part is not negotiable and is already how `absorb`
-  and `movePair` work — but the *spread* of velocities is free, and it is what
-  decides whether the result reads as a break-up or as confetti.
-- **What stops it undoing itself.** Fragments that separate slower than their
-  mutual escape velocity fall straight back together and merge, so a scene would
-  flicker between one body and several. Either the threshold guarantees escape
-  or contacts need a cooldown, and a cooldown is state that every other part of
-  the contact solver manages to do without.
+**How fast.** From the impact's own excess energy, halved — the rest going where
+heat and rotation would. Nothing is invented, so a break-up is always a loss of
+kinetic energy, exactly as the merge it replaces is. The pieces carry the pair's
+momentum and angular momentum exactly: the ring is laid out so that its centre
+of mass *is* the pair's, the leftover angular momentum becomes a rigid rotation
+of the whole cloud — the same trick a merge uses to turn two orbiting bodies
+into one spinning one — and a single shared velocity shift removes what floating
+point leaves behind.
 
-**The acceptance test is written already**, because it is the same one the rest
-of the contact code is held to: mass, linear momentum and angular momentum
-conserved to floating point through a break-up, and the pile it produces settling
-rather than gaining energy. What no test can decide is whether it looks like a
-collision, which is why this is a design task first.
+**What stops it undoing itself.** Pieces that separate slower than their own
+escape speed fall straight back together, and a scene doing that flickers
+between one body and several. The obvious fix is a cooldown, which is state the
+rest of the contact solver does without. This does without it too: if the
+dispersal the energy pays for would not clear the escape speed of the cloud it
+would make, the pair merges instead. A break-up that cannot finish never starts.
+The measured effect is that breaking begins at about **3.5x** the binding
+energy rather than at 1x — the dispersal requirement is stricter than the
+unbinding one, which is also true of the real thing.
+
+**What the tests hold it to**, all in `tests/fragmentation.test.ts`: mass, linear
+momentum and angular momentum conserved through a break-up to eight decimal
+places; kinetic energy never increased; the pieces laid out without overlapping;
+their centre of mass where the pair's was; a gentle contact merging; and a live
+engine left running for three thousand steps whose body count stops changing
+rather than oscillating. What no test can decide is whether it looks like a
+collision — `screenshots/11-shatter.png` is what it looks like.
+
+**A geometry bug worth remembering.** The pieces are laid on a ring, each taking
+an arc proportional to its own width. That spaces neighbours by the sum of their
+radii *along the arc*, and the straight line between two points is shorter than
+the arc joining them — always, at every ring size — so the pieces overlapped and
+widening the ring could never fix it. The slack has to go in the slot, not the
+radius.
 
 ## M10 — Deliberately deferred
 

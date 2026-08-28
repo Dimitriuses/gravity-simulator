@@ -82,11 +82,21 @@ frame, with or without sub-stepping.
 
 What the model still does not include:
 
-- **Merging is perfectly inelastic and irreversible.** Mass, momentum and
-  angular momentum are conserved exactly; kinetic energy is not, and nothing
-  fragments. Two bodies that graze at high speed merge as readily as two that
-  settle together. Fragmentation is roadmap M16, where the design questions it
-  turns on are written out.
+- **Merging is perfectly inelastic**, and in merge mode it is irreversible: mass,
+  momentum and angular momentum are conserved exactly, kinetic energy is not,
+  and two bodies that graze at high speed merge as readily as two that settle
+  together. The *shatter* mode (roadmap M16) is the exception — there, an impact
+  carrying more energy than it would take to pull the merged body apart breaks
+  the pair into a largest remnant and smaller pieces instead.
+- **Shattering has three numbers in it that are choices**, and they are named as
+  such in [`src/fragmentation.ts`](src/fragmentation.ts): half the mass stays in
+  the largest piece, half the leftover energy goes into throwing the pieces
+  apart, and no impact makes more than five. The threshold itself and the
+  dispersal speed are consequences rather than choices — they come from the
+  binding energy the mass rule implies. In practice the *escape* condition binds
+  first: breaking starts at about 3.5x the binding energy, not 1x, because
+  pieces that cannot outrun each other fall back together and the pair merges
+  instead.
 - **The sweep assumes straight-line motion within a sub-step.** It is exact for
   the step it is given, so what is left is the curvature the step itself
   ignores, which adaptive stepping already bounds. Accepted as a property rather

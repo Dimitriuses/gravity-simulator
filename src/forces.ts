@@ -12,6 +12,20 @@ import { Particle } from './Particle';
  */
 
 /**
+ * The gravitational constant, in simulation units.
+ *
+ * Not a measurement: 0.5 is the number that made the mass slider feel right.
+ * `src/units.ts` is what turns it into real seconds when a scene needs to be
+ * compared with the sky.
+ *
+ * It lives beside the force law rather than in `PhysicsEngine` — where it used
+ * to be, and is still re-exported from for the callers that know it by that
+ * name — because the contact solver needs it too, and importing it from the
+ * engine made the engine and the collision pass import each other.
+ */
+export const SIMULATION_G = 0.5;
+
+/**
  * Softened gravitational force on a body at `from` due to a body at `to`.
  *
  * F = G·m₁·m₂/r², with r² clamped to `contactDistance²`. Below contact the two

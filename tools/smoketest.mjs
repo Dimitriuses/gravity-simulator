@@ -708,6 +708,43 @@ try {
     // field is off in this scene — see the note on the preset — so what shows
     // is the thing the scene is for: four rocky planets inside a fifth of
     // Jupiter's orbit, each with the Sun's pull drawn on it.
+    // A hard head-on impact in shatter mode: two bodies in, a largest remnant
+    // and two smaller pieces out. Caught early, because the pieces leave the
+    // frame within a second at the speed the impact gives them.
+    await page.click('#clearBtn');
+    await page.evaluate(() => {
+      document.getElementById('physicsSection').open = true;
+    });
+    await page.selectOption('#collisionSelect', 'shatter');
+    await setSlider('#massSlider', 1200);
+    await page.click('#resetCameraBtn');
+    // Left of centre, because the largest piece leaves along the line the
+    // bodies met on — which is to the right — and it would otherwise be off
+    // the edge by the time the other two are far enough apart to see.
+    await launch(560, 400, 400, 0);
+    await launch(1020, 400, -400, 20);
+
+    // Folded again before the shot: the panel is 520px wide with its sections
+    // open, which is a third of the canvas and most of where the debris goes.
+    await page.evaluate(() => {
+      for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+        document.getElementById(id).open = false;
+      }
+    });
+    // The pieces leave at about twelve units a step, so this is the window in
+    // which all three are still in frame.
+    await page.waitForTimeout(380);
+    await shot('11-shatter.png');
+
+    await page.evaluate(() => {
+      document.getElementById('physicsSection').open = true;
+    });
+    await page.selectOption('#collisionSelect', 'merge');
+    await setSlider('#massSlider', 200);
+    await page.evaluate(() => {
+      document.getElementById('physicsSection').open = false;
+    });
+
     await page.selectOption('#presetSelect', 'solar-system');
     // Folded, so the screenshot shows the scene rather than the settings the
     // shots above happened to leave open.
@@ -940,7 +977,7 @@ try {
   }));
   check(
     'the contact dropdown is populated and defaults to merging',
-    collisionModes.options.length === 3 && collisionModes.selected === 'merge',
+    collisionModes.options.length === 4 && collisionModes.selected === 'merge',
     `options=[${collisionModes.options.join(', ')}], selected=${collisionModes.selected}`
   );
 
@@ -1096,6 +1133,71 @@ try {
   await page.click('#clearBtn');
   await page.waitForTimeout(200);
 
+  // ── Shattering ─────────────────────────────────────────────────────────────
+  // The mode is merging with an exception: gentle contacts accrete, hard ones
+  // break. Both halves are checked, because a mode that only ever shatters
+  // would pass a test for shattering.
+  {
+    await page.selectOption('#collisionSelect', 'shatter');
+    await page.click('#clearBtn');
+    await page.locator('#massSlider').fill('1200');
+    await page.waitForTimeout(150);
+
+    // Gently: two bodies placed touching, with no drag to speed them up.
+    await page.mouse.click(700, 300);
+    await page.mouse.click(742, 300);
+    await page.waitForTimeout(1200);
+
+    const afterGentle = await page.textContent('#objectCount');
+    check(
+      'a gentle contact still merges in shatter mode',
+      afterGentle === '1',
+      `objectCount=${afterGentle}`
+    );
+
+    // Hard: two heavy bodies driven into each other. The drag sets velocity at
+    // 0.05 per pixel, so 460 pixels is 23 units a step each way.
+    // Clear of the control panel, which is 520px wide once the Physics section
+    // is open — as it is by now. A drag starting at (400, 400) starts on the
+    // panel, and the body it should have made is never made.
+    await page.click('#clearBtn');
+    for (const [x, y, dx, dy] of [
+      [620, 400, 440, 0],
+      [1120, 400, -440, 20],
+    ]) {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + dx, y + dy, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(100);
+    }
+    await page.waitForTimeout(900);
+
+    const afterImpact = await page.textContent('#objectCount');
+    const pieces = await page.evaluate(() =>
+      [...document.querySelectorAll('.particle-item')].map((row) =>
+        Number((/Mass:\s*([\d.]+)/.exec(row.textContent ?? '') ?? [])[1] ?? 0)
+      )
+    );
+    const mass = pieces.reduce((sum, m) => sum + m, 0);
+
+    check(
+      'a hard impact breaks the pair into pieces',
+      Number(afterImpact) > 2,
+      `objectCount=${afterImpact}, masses ${pieces.join(' + ')}`
+    );
+    check(
+      'and the pieces weigh what went into them',
+      Math.abs(mass - 2400) <= 3,
+      `${mass} against 2400`
+    );
+
+    await page.selectOption('#collisionSelect', 'merge');
+    await page.locator('#massSlider').fill('200');
+    await page.click('#clearBtn');
+    await page.waitForTimeout(150);
+  }
+
   // ── Following a body, and the debug overlay ────────────────────────────────
   // Both are canvas-only: one moves the camera, the other draws in screen
   // space, and neither leaves a trace in the DOM beyond a status line.
@@ -1117,7 +1219,13 @@ try {
       return n;
     };
 
+    // Selected *and* reloaded: `selectOption` fires no change event when the
+    // dropdown already reads what it is being set to, and an earlier section
+    // may have left it here — in which case nothing rebuilds the scene and this
+    // runs against whatever the last section left behind, which in the
+    // screenshot run is an empty canvas.
     await page.selectOption('#presetSelect', 'binary');
+    await page.click('#reloadPresetBtn');
     await page.waitForTimeout(700);
     // Only the bodies, so the count means what it says: trails are nearly the
     // same colour, and the field would fill the middle with arrows.

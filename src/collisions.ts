@@ -1,4 +1,6 @@
 import { Particle } from './Particle';
+import { MAX_FRAGMENTS, fragmentsOf } from './fragmentation';
+import { SIMULATION_G } from './forces';
 import { Vector2D } from './Vector2D';
 import { QuadTree, treeOf } from './quadtree';
 
@@ -16,12 +18,13 @@ import { QuadTree, treeOf } from './quadtree';
  * point the simulation has nothing meaningful left to say about them.
  */
 
-export type CollisionMode = 'merge' | 'bounce' | 'none';
+export type CollisionMode = 'merge' | 'bounce' | 'shatter' | 'none';
 
 /** Labels for the UI, in the order they should appear. */
 export const COLLISION_MODE_LABELS: ReadonlyArray<{ id: CollisionMode; label: string }> = [
   { id: 'merge', label: 'Merge on contact' },
   { id: 'bounce', label: 'Bounce (inelastic)' },
+  { id: 'shatter', label: 'Merge, but hard hits shatter' },
   { id: 'none', label: 'Pass through' },
 ];
 
@@ -268,6 +271,76 @@ function mergeAll(
 }
 
 /**
+ * Merge every touching pair, except the ones hit hard enough to come apart.
+ *
+ * A superset of `mergeAll`: the decision of which is which belongs to
+ * `fragmentation.ts`, which answers `null` for every pair that should merge
+ * after all — because the impact was gentle, or because the pieces it would
+ * make could not escape each other. Everything here is bookkeeping around that
+ * answer.
+ */
+function shatterAll(
+  particles: Particle[],
+  treeThreshold: number,
+  G: number,
+  previous?: Vector2D[]
+): number {
+  let events = 0;
+
+  // Bounded like the merge pass, but by twice the count: a break-up adds
+  // bodies, so "every pass removes one" no longer holds and the guard has to
+  // come from somewhere else. Each pass resolves at least one contact.
+  for (let guard = 2 * particles.length + MAX_FRAGMENTS; guard > 0; guard--) {
+    const pairs = touchingPairs(particles, treeThreshold, previous);
+    if (pairs.length === 0) break;
+
+    const consumed = new Set<number>();
+    const removals: number[] = [];
+    const additions: Particle[] = [];
+
+    for (const [i, j] of pairs) {
+      if (consumed.has(i) || consumed.has(j)) continue;
+
+      if (previous) rewindToContact(particles[i], previous[i], particles[j], previous[j]);
+
+      const a = particles[i];
+      const b = particles[j];
+      const fragments = fragmentsOf(a, b, G);
+
+      if (fragments) {
+        additions.push(...fragments);
+        removals.push(i, j);
+      } else {
+        const heavier = a.mass >= b.mass ? i : j;
+        particles[heavier].absorb(particles[heavier === i ? j : i]);
+        removals.push(heavier === i ? j : i);
+      }
+
+      consumed.add(i);
+      consumed.add(j);
+      events++;
+    }
+
+    removals.sort((x, y) => y - x);
+    for (const index of removals) {
+      particles.splice(index, 1);
+      previous?.splice(index, 1);
+    }
+
+    for (const fragment of additions) {
+      particles.push(fragment);
+      // A body that did not exist at the start of the step has no previous
+      // position, and its current one is the only honest answer: the swept
+      // test then sees it as standing still, which it was, having only just
+      // come into being.
+      previous?.push(fragment.position);
+    }
+  }
+
+  return events;
+}
+
+/**
  * Put a pair back where they first touched, if that was partway through the
  * step just taken.
  *
@@ -482,10 +555,17 @@ export function resolveCollisions(
   mode: CollisionMode,
   treeThreshold: number = Infinity,
   restitution: number = RESTITUTION,
-  previous?: Vector2D[]
+  previous?: Vector2D[],
+  G: number = SIMULATION_G
 ): number {
   if (mode === 'none' || particles.length < 2) return 0;
-  return mode === 'merge'
-    ? mergeAll(particles, treeThreshold, previous)
-    : bounceAll(particles, treeThreshold, restitution, previous);
+
+  switch (mode) {
+    case 'merge':
+      return mergeAll(particles, treeThreshold, previous);
+    case 'shatter':
+      return shatterAll(particles, treeThreshold, G, previous);
+    default:
+      return bounceAll(particles, treeThreshold, restitution, previous);
+  }
 }

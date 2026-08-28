@@ -101,6 +101,15 @@ The **Figure eight** scene: three equal masses chasing each other around one
 closed curve, a solution found by Chenciner and Montgomery in 2000. The trail is
 one full period long, which is what makes the curve a curve rather than an arc.
 
+![Two bodies breaking into three after a head-on impact](screenshots/11-shatter.png)
+
+**Merge, but hard hits shatter**: two bodies of 1,200 driven into each other at
+23 units a step, a fifth of a second later. The trails come in as two lines and
+leave as three — a 1,200 remnant and two 600s. Whether a contact merges or
+breaks is decided by comparing the impact's energy against what it would take to
+pull the merged body apart against its own gravity, which is the only energy
+scale a simulation with no material strength has.
+
 ![The inner solar system, its four rocky planets drawn from J2000 orbital elements](screenshots/10-solar-system.png)
 
 The **Solar System** scene is the one whose numbers nobody here chose: the nine
@@ -129,7 +138,7 @@ thousand years.
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it, and the Solar System sets its own pace as well |
 | **Reload** | Rebuild the current scene from scratch |
 | **Copy Link** | Put the scene as it stands into the address bar, and on the clipboard |
-| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, set how bouncy it is, or force the exact force solver |
+| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact — merge, bounce, shatter or pass through — set how bouncy it is, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Field* dropdown switches between the six ways of drawing it. Bodies you add yourself inherit
@@ -251,7 +260,7 @@ before trusting a change.
 ```bash
 npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 278 unit tests, headless, ~19s
+npm test            # 298 unit tests, headless, ~20s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -283,7 +292,7 @@ measurement is run through RK4 rather than the default integrator.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 105 properties, including that the background is the intended navy, that
+asserts 108 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -320,9 +329,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   Euler) to 0.11%. There is a floor on how badly a *physical* orbit can be
   resolved — about 25 steps per orbit, since a body cannot orbit inside the
   primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
-- **Collisions are still simple.** Merging is perfectly inelastic and
-  irreversible, and nothing fragments. Gravity applies no torque, so spin
-  changes only at contact. Separating two interpenetrating bodies is done by
+- **Collisions are simple, and now go both ways.** Merging is perfectly
+  inelastic; a hard enough impact breaks the pair up instead, into a largest
+  remnant and smaller pieces. Gravity applies no torque, so spin changes only at
+  contact. Separating two interpenetrating bodies is done by
   moving them, which is the one part of a contact that is not an impulse — the
   angular momentum the move would cost is paid into the pair's spin, so the
   total still comes out unchanged.
@@ -353,10 +363,12 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active development. [`ROADMAP.md`](ROADMAP.md) is in priority order: a longer
-window for the ephemeris check, per-body time-stepping, and fragmentation — plus
-what is deliberately deferred, and why. Thirteen milestones behind those are
-records of what was done, including what was tried and abandoned.
+Every milestone on [`ROADMAP.md`](ROADMAP.md) is now closed — the last of them,
+fragmentation, having been deferred four times before it was written down as
+four decisions and made. What remains there is a record of what was done,
+including what was tried and abandoned, and a list of what is deliberately not
+being done with the reason attached to each, so that when a reason expires the
+item can be reconsidered.
 
 ## Licence
 

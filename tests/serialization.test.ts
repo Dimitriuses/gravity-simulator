@@ -263,3 +263,19 @@ describe('the time step', () => {
     if ('scene' in result) expect(result.scene.timeStep).toBeUndefined();
   });
 });
+
+describe('the shatter mode', () => {
+  it('travels in a link like the other contact modes', () => {
+    const text = encodeScene({ preset: 'binary', collisionMode: 'shatter' });
+    const result = decodeScene(text);
+
+    expect('scene' in result).toBe(true);
+    if ('scene' in result) expect(result.scene.collisionMode).toBe('shatter');
+  });
+
+  it('is still refused when it is not one of the modes', () => {
+    // The validation is a list membership rather than a string check, so a new
+    // mode joins it by existing — and a made-up one still does not.
+    expect('error' in decodeScene('v=1;p=verlet,vaporise,auto,1')).toBe(true);
+  });
+});

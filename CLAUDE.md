@@ -42,7 +42,8 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   ├── presets        starting scenes, as data plus orbit arithmetic
   ├── integrators    Euler / Verlet / RK4, and the adaptive sub-step rule
   │     └── forces      the softened force law; accelerations at any positions
-  ├── collisions     merge / bounce / pass through, resolved at contact
+  ├── collisions     merge / bounce / shatter / pass through, at contact
+  │     └── fragmentation  what a pair breaks into, and whether it should
   ├── quadtree       Barnes-Hut: forces, field, contacts, step size
   ├── serialization  scenes as text, for saving and for the URL fragment
   ├── contours       marching squares over any scalar field
@@ -57,7 +58,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 278 tests run under Node in about nineteen
+plain TypeScript, which is why 298 tests run under Node in about twenty
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -244,6 +245,32 @@ This is why `forceMode` defaults to `auto` and the exact solver is kept below
 `BARNES_HUT_THRESHOLD` (128 bodies) — a promise about exactness in the scenes
 the interface encourages, not a speed threshold. The tree is already faster at
 64 bodies.
+
+### A break-up that cannot finish never starts
+
+`fragmentsOf` answers `null` for two different reasons and the caller treats
+them the same way — merge instead. One is an impact too gentle to unbind the
+body. The other is an impact that would make pieces too slow to escape each
+other, which would fall back together and re-merge, and a scene doing that
+flickers between one body and several several times a second.
+
+The alternative is a cooldown: state saying "these pieces may not re-merge yet".
+Every other part of the contact solver does without state between frames, and
+this does too. The cost is that the effective threshold is not the one the first
+constant names: breaking starts at about **3.5x** the binding energy, because
+the dispersal requirement is stricter than the unbinding one.
+
+Two things about the layout are easy to get wrong and are pinned by tests. The
+pieces are laid on a ring, each taking an arc proportional to its width — and
+the *chord* between neighbours is shorter than that arc at every ring size, so
+the slack has to be in the slot or nothing separates them. And the ring is slid
+so that the fragments' centre of mass is the pair's, without which the momentum
+correction and the angular momentum it is supposed to preserve disagree.
+
+`SIMULATION_G` lives in `forces.ts` and is re-exported from `PhysicsEngine` for
+the callers that know it by that name. It moved when the contact solver started
+needing it: the engine imports the collision pass, so the collision pass
+importing the engine made the two import each other.
 
 ### There is one force law, in `forces.ts`
 

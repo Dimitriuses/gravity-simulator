@@ -11,6 +11,7 @@ import {
 } from './integrators';
 import { CollisionMode, RESTITUTION, resolveCollisions } from './collisions';
 import { DEFAULT_THETA, QuadTree, treeAt, treeOf } from './quadtree';
+import { SIMULATION_G } from './forces';
 
 /**
  * Gravitational constant. Not Newton's — a tuning value picked so that the
@@ -18,7 +19,7 @@ import { DEFAULT_THETA, QuadTree, treeAt, treeOf } from './quadtree';
  * Exported because `presets.ts` derives its orbital velocities from it: a
  * preset built against a different G is simply a scene that flies apart.
  */
-export const SIMULATION_G = 0.5;
+export { SIMULATION_G } from './forces';
 
 /** Angular momentum is measured about the world origin, which never moves. */
 const ORIGIN = new Vector2D(0, 0);
@@ -287,7 +288,8 @@ export class PhysicsEngine implements ForceField {
       this.collisionMode,
       this.forceMode === 'exact' ? Infinity : BARNES_HUT_THRESHOLD,
       this.restitution,
-      previous
+      previous,
+      this.G
     );
 
     if (events > 0) {
