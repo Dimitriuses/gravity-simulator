@@ -21,7 +21,7 @@ entry in it corresponds to a bug that actually shipped.
 | `npm run verify:install` | would CI's npm accept `package-lock.json`? |
 | `npm run compare` | integrator accuracy tables; `-- --write` dumps a file to paste into `INTEGRATORS.md` |
 | `npm run bench` | scaling and quadtree accuracy; `-- --write` dumps a file to paste into `SCALING.md` |
-| `npm run ephemeris` | a century of the real solar system; `-- --write` dumps a file to paste into `EPHEMERIS.md`, `-- --quick` runs a tenth of it |
+| `npm run ephemeris` | a millennium of the real solar system, ~4.5 min; `-- --write` dumps a file to paste into `EPHEMERIS.md`, `-- --quick` runs a decade of it in ten seconds, which is what CI runs |
 
 `npm run dev` uses esbuild, which strips types without checking them. **A green
 dev server proves nothing about whether the project builds** — this is exactly
@@ -57,7 +57,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 271 tests run under Node in about nineteen
+plain TypeScript, which is why 278 tests run under Node in about nineteen
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -479,6 +479,45 @@ sizes, and a control case whose answer is known independently. Do not read a
 long-run number out of this simulation without them, and do not take energy
 conservation as evidence that a run was accurate.
 
+A fourth habit came out of M14: quote a rate over **two windows**. The tool
+fits every rate over the first century of its run and over the whole
+millennium, and the pair is what distinguishes a rate from the phase of
+something slower — Jupiter's perihelion had the wrong sign over a century and
+is within 10% over a millennium, while Mercury's moves by 0.4″ between the two.
+A number that survives ten times the integration is a different kind of number
+from one that has only been measured once.
+
+Sampling has to follow the *shortest* orbit rather than the span: the tool reads
+the orbits back every eighth of Mercury's year, because the turn counter and the
+perihelion unwrapping both need better than half an orbit between readings, and
+a fixed number of samples across a millennium would put four months between them.
+
+### One scene is in real units, and three things bend around it
+
+The solar-system preset is built from `src/ephemeris.ts` at
+`SOLAR_SYSTEM_SCALE`, so its numbers are the sky's rather than anyone's choice.
+That makes it the scene where every constant tuned for the hand-built scenes
+shows up as wrong:
+
+- **`Preset.timeStep`** exists because 1 is only a good step in units chosen to
+  make it one. Here it is 398 seconds, so the scene asks for 110 a frame. It is
+  applied on every preset load, like the overlays and the zoom, so one scene's
+  pace cannot follow the viewer into the next; it round-trips through the scene
+  format as `d=`, bounded by `MAX_TIME_STEP`.
+- **`MIN_DRAWN_DIAMETER_PX`** is why the planets are visible at all. Distance
+  stays exact and size stops shrinking below three pixels — the only honest
+  option, since the Sun is 109 Earths wide and the Earth's orbit is 23,000 Suns
+  around.
+- **The per-body arrows have no magnitude threshold**, only `> 0`. The two
+  constants that used to gate them (1e-6 of force, 0.01 of speed) hid *every*
+  arrow in this scene, where the force on the Earth is 2e-14. They are scaled
+  against the frame's own range, so nothing was needed in their place. The
+  field's `MIN_FORCE` is still absolute and still hides the whole scene, which
+  is why the preset ships with the overlay off — the sampler applies it while
+  deciding where to sample, before a range exists.
+
+If a fourth scene-scale constant turns up, this is the list it belongs on.
+
 ### Preset velocities come from an orbit equation, never from a guess
 
 `src/presets.ts` derives every velocity — `circularOrbitSpeed`,
@@ -622,6 +661,12 @@ JavaScript would recreate the exact drift that rule exists to prevent.
 The control panel's action row is `position: sticky` inside the scrolling
 panel. When testing that kind of layout claim, do not scroll the panel first:
 the first version of the smoke check did, and passed with the fix removed.
+
+A consequence for `tools/smoketest.mjs`: the panel is 289px wide with its
+sections folded and **520px** wide with them open, so a canvas click near the
+top-left may land on the panel depending on what an earlier section opened. One
+at (500, 470) became the sticky Pause button, froze the simulation and failed
+three later checks — none of which mentioned the panel.
 
 ### A click belongs to the canvas only if its `target` is the canvas
 

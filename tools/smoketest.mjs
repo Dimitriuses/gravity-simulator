@@ -703,6 +703,21 @@ try {
     await shot('09-heightmap.png');
 
     await page.selectOption('#fieldModeSelect', 'gradient');
+
+    // The solar system, given an Earth year and a half to draw its orbits. The
+    // field is off in this scene — see the note on the preset — so what shows
+    // is the thing the scene is for: four rocky planets inside a fifth of
+    // Jupiter's orbit, each with the Sun's pull drawn on it.
+    await page.selectOption('#presetSelect', 'solar-system');
+    // Folded, so the screenshot shows the scene rather than the settings the
+    // shots above happened to leave open.
+    await page.evaluate(() => {
+      for (const id of ['renderSection', 'cameraSection', 'physicsSection']) {
+        document.getElementById(id).open = false;
+      }
+    });
+    await page.waitForTimeout(18000);
+    await shot('10-solar-system.png');
   }
 
   // ── Preset scenes ──────────────────────────────────────────────────────────
@@ -978,11 +993,17 @@ try {
   await page.locator('#restitutionSlider').fill('0.8');
   await page.waitForTimeout(120);
 
+  // Every coordinate here has to clear the control panel, which is 289px wide
+  // with its sections folded and 520px wide with them open — and the Physics
+  // section is open by the time this runs, because the integration checks above
+  // opened it to reach its controls. (500, 470) used to be canvas and became
+  // the sticky Pause button when the panel grew a second column, which froze
+  // the simulation and took three later checks down with it.
   for (const [x, y] of [
     [560, 320],
     [720, 340],
     [640, 520],
-    [500, 470],
+    [600, 470],
     [780, 480],
   ]) {
     await page.mouse.click(x, y);
@@ -1215,6 +1236,76 @@ try {
     await page.check('#showVectors');
     await page.check('#showParticleVectors');
     await page.waitForTimeout(300);
+  }
+
+  // ── The solar system ───────────────────────────────────────────────────────
+  // The one scene whose numbers nobody here chose. Its physics is checked in
+  // tests/presets.test.ts and against JPL in EPHEMERIS.md; what only exists
+  // here is whether it is *watchable*: nine bodies at real distances, where the
+  // Earth is a fiftieth of a pixel across and would not be drawn at all without
+  // a floor on how small a body may get.
+  {
+    await page.selectOption('#presetSelect', 'solar-system');
+    // Half an Earth year at the pace the scene sets, so the inner planets have
+    // drawn arcs worth counting.
+    await page.waitForTimeout(6000);
+
+    const bodies = await page.textContent('#objectCount');
+    check('the solar system loads nine bodies', bodies === '9', `objectCount=${bodies}`);
+
+    const dots = await onCanvas((data, width, height) => {
+      // Body-coloured pixels anywhere on the canvas. At this scale every planet
+      // is drawn at the minimum size, so this counts dots rather than discs.
+      let n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] > 100 && data[i + 1] > 150 && data[i + 2] > 200) n++;
+      }
+      void width;
+      void height;
+      return n;
+    });
+    // At this zoom the Sun's true radius is 0.47 pixels and every planet is
+    // orders of magnitude smaller, so without a floor on the drawn size the
+    // nine of them would cover about six pixels between them. They cover this
+    // many because of it.
+    check(
+      'and draws them, though the Earth is a fiftieth of a pixel across',
+      dots > 20,
+      `${dots} body pixels, against about 6 if bodies were drawn at their true size`
+    );
+
+    // Trails fade along their length, so counting the trail's own colour finds
+    // only the freshest band of it. What is counted instead is anything paler
+    // and bluer than the background, which is what a fading trail leaves — and
+    // it is counted twice, because the interesting claim is not that an arc
+    // exists but that it is *growing* while somebody watches.
+    const lit = () =>
+      onCanvas((data) => {
+        let n = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 2] > 70 && data[i + 2] >= data[i] && data[i + 2] >= data[i + 1]) n++;
+        }
+        return n;
+      });
+
+    const early = await lit();
+    await page.waitForTimeout(4000);
+    const later = await lit();
+
+    // At the default step of 1 this scene would be 398 seconds a frame, and
+    // four seconds of watching would advance the Earth by a fifth of a degree.
+    check(
+      'the inner planets draw their orbits while you watch',
+      later > early + 200,
+      `${early} lit pixels, then ${later} four seconds later`
+    );
+
+    const legend = await page.textContent('#legendScale');
+    check(
+      'and the legend does not report a field it is not drawing',
+      /overlay off/.test(legend ?? ''),
+      `legend reads "${legend}"`
+    );
   }
 
   // ── Absolute readings ──────────────────────────────────────────────────────

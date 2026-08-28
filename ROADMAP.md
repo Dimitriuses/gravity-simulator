@@ -460,9 +460,9 @@ caveats in [`EPHEMERIS.md`](EPHEMERIS.md); what it settled:
 
 **Left open:** two things, of different kinds. The model is flat because the
 simulation is, which is not a task but a consequence of **M10**'s decision about
-3D — recorded there with the number it costs. What *is* a task is that a century
-is too short a window for the outer planets and Mercury is not the only orbit
-worth measuring: that is **M14**.
+3D — recorded there with the number it costs. The window was the other, and
+**M14** has since replaced the century with a millennium; the numbers quoted in
+this section are the century ones, and EPHEMERIS.md now carries both.
 
 ## M9 — Housekeeping — **done**
 
@@ -578,28 +578,80 @@ where the panel now answers the squeeze by taking a second column instead of
 scrolling at all. It runs at 900×620 now, and the comment says why: a check
 about scrolling needs a window where scrolling is what happens.
 
-## M14 — A longer ephemeris window
+## M14 — A longer ephemeris window — **done**
 
-*Small*, and it strengthens something already published. M8 ran a Julian century
-and three of its tables carry a caveat that a longer run would remove.
+*Small*, and it strengthened something already published. M8 ran a Julian
+century; this runs a Julian millennium and reports rates over two windows cut
+from the same run — its first century, which is what JPL's published rates are
+fitted over and therefore the only one comparable with them, and the whole of
+it, which says whether a number was a rate or the phase of something slower.
 
-- **A century is too short for the giants.** Jupiter completes 8.4 orbits in the
-  window, Saturn 3.4, Uranus 1.2, Neptune 0.6 — so their perihelion rows measure
-  the phase of a long oscillation rather than a rate, and Jupiter and Saturn's
-  900-year exchange is longer than the window itself. A millennium is ten times
-  the run, which is four minutes rather than twenty-four seconds, and nothing
-  about the tool needs to change to do it.
-- **Venus's perihelion is ill-conditioned**, at e = 0.0068: where the perihelion
-  of a nearly circular orbit *is* barely means anything, and both the measured
-  and the published rate are small differences of large wandering quantities.
-  Fitting `h = e·sin ϖ` and `k = e·cos ϖ` instead — which stay well-behaved
-  through a circular orbit — and deriving the rate from those is the standard
-  answer and would replace the one row in EPHEMERIS.md that currently reads as
-  noise.
-- **Nothing notices if the tool stops running.** `npm run ephemeris -- --quick`
-  is ten seconds and CI does not run it. The full measurement does not belong in
-  CI — it is a published result, not a test — but a run that no longer starts is
-  worth catching there.
+One run rather than two: the century column is the first tenth of the
+millennium, so the longer window costs the extra integration and nothing else.
+Four minutes forty, against twenty-four seconds.
+
+- ~~A century is too short for the giants.~~ **Done, and it was.** Over a
+  century Saturn's period came out 1.08% short, Uranus's 1.20% long and
+  Neptune's 1.06% short; over a millennium every planet is within **0.35%**, and
+  the inner four within 0.18%. Jupiter's perihelion had the *wrong sign* over a
+  century — -532″ against a published +765″ — and comes out at +837″ over a
+  millennium. Uranus goes from +7,857″ to +1,672″ against +1,469″. Both then sit
+  about 10% high, the same direction and roughly the same size as the flattening
+  error already known from Mercury.
+- ~~Venus's perihelion is ill-conditioned.~~ **Done, and the answer was not the
+  one this entry expected.** Fitting `h = e·sin ϖ` and `k = e·cos ϖ` and
+  recovering `dϖ/dt = (k·ḣ - h·k̇)/(h² + k²)` is the right estimator and is now
+  what every perihelion row uses — but it gives Venus the *same* -270″ a century
+  that a direct fit to ϖ gave. So the disagreement with the published +9.7″ is
+  not arithmetic, which is what this was brought in to establish: that +9.7″ is
+  the small residue of perturbations worth hundreds of arcseconds each, and a
+  flat model gets each of those a few per cent wrong. A few per cent of hundreds
+  is larger than the answer.
+
+  Saturn does not settle either, and says so: a millennium is 1.1 cycles of its
+  900-year exchange with Jupiter, which is not enough of one to average away.
+- ~~Nothing notices if the tool stops running.~~ **Done.** CI runs
+  `npm run ephemeris -- --quick`, a decade in about ten seconds, after the
+  production build. The full measurement stays out of CI — it is a published
+  result, not a test.
+
+**What it bought beyond the tables**: Mercury's perihelion moves by **0.4″**
+between a century and a millennium. A figure that holds over ten times the
+integration is not an artefact of where the run happened to stop, and that is
+worth more than either window on its own.
+
+### And a scene to go with it
+
+The same starting data is now a preset, so the thing the tool measures is also
+the thing you can watch. It needed three changes, each of which was a limitation
+worth finding:
+
+- **A scene can set its own pace.** `Preset.timeStep` is how much simulated time
+  a frame advances. Every hand-built scene here is in units where 1 is a good
+  step; the solar system is in real ones, where 1 is 398 seconds and the Earth
+  would take twenty-two minutes to go round. At 110 it takes ten seconds and
+  Mercury takes three. It travels in a link (`d=`), bounded on the way in like
+  every other decoded value, because a scene that lost it would open on a
+  picture that looks frozen.
+- **A body is never drawn smaller than three pixels across.** Sizes and
+  distances in a real system cannot share a zoom — the Sun is 109 Earths wide
+  and the Earth's orbit is 23,000 Suns around — so distance stays exact and size
+  stops shrinking. Nine bodies that would have covered six pixels between them
+  cover about 120.
+- **The per-body arrows had an absolute threshold, and it was wrong.** They were
+  hidden below a fixed 1e-6 of force and 0.01 of speed, tuned for scenes whose
+  masses run to thousands; in units where the Sun weighs 0.0126, the force on
+  the Earth is 2e-14 and *every arrow in the scene* fell below it. They are now
+  drawn whenever there is anything to draw, since the range they are scaled
+  against is the frame's own — a force that is small only in comparison already
+  gets a short arrow, which is the picture those constants were reaching for.
+
+  The **field** overlay still cannot draw this scene, for the same reason in a
+  place where it is harder to fix: `VectorField` drops samples below an absolute
+  0.001 while it is deciding where to sample, before any range exists to compare
+  against. The preset turns the overlay off rather than leaving it on and empty,
+  and the legend now says "field overlay off" instead of showing the numbers the
+  last scene left behind.
 
 ## M15 — Per-body time-stepping
 

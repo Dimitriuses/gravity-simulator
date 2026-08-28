@@ -46,6 +46,13 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # Ten seconds of the ephemeris check. The published measurement is a
+      # five-minute millennium and does not belong in CI — it is a result, not
+      # a test — but a tool that no longer starts should not go unnoticed until
+      # someone next reaches for it.
+      - name: Ephemeris tool starts and runs
+        run: npm run ephemeris -- --quick
+
   # Boots the built page in a real browser and drives it: places bodies, pans,
   # zooms, switches field modes, pauses. Fails on any console error, any failed
   # request, or any of the rendering regressions the unit tests cannot see —

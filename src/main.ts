@@ -104,6 +104,15 @@ const sketch = (p: p5) => {
    * the three already there.
    */
   let sceneTrailLength = new Particle(0, 0).maxTrailLength;
+
+  /**
+   * How much simulated time one frame advances.
+   *
+   * A scene's own choice, from `Preset.timeStep`, because "one" is only a good
+   * step in units someone picked to make it one. The solar system is in real
+   * units, where a step of 1 is 398 seconds.
+   */
+  let sceneTimeStep = 1;
   /** How many bodies the particle list is currently showing. */
   let listedParticleCount = 0;
   /**
@@ -238,7 +247,7 @@ const sketch = (p: p5) => {
       // every arrow.
       engine.computeForces();
     } else {
-      engine.step();
+      engine.step(sceneTimeStep);
     }
     // Only when it is going to be drawn. Sampling the field is the most
     // expensive thing a frame does — on the galaxy preset it was 85% of a
@@ -429,6 +438,20 @@ const sketch = (p: p5) => {
     if (particle) camera.centerOn(particle.position.x, particle.position.y);
   }
 
+  /**
+   * A mass, for reading.
+   *
+   * Rounding to an integer is right for the hand-built scenes, where masses run
+   * from 1 to 5,000, and turns every body in the solar system into "0": in
+   * units where the radius rule gives the Sun its real radius, the Sun is
+   * 0.0126 and the Earth is 3.8e-8. Small values keep three significant
+   * figures instead.
+   */
+  function formatMass(mass: number): string {
+    if (mass >= 1) return String(Math.round(mass));
+    return mass > 0 ? mass.toPrecision(3) : '0';
+  }
+
   function updateFollowStatus(message?: string): void {
     if (message) {
       followStatus.textContent = message;
@@ -436,7 +459,7 @@ const sketch = (p: p5) => {
     }
 
     const parts: string[] = [];
-    if (followed) parts.push(`Following a ${Math.round(followed.mass)}-mass body (Esc releases)`);
+    if (followed) parts.push(`Following a ${formatMass(followed.mass)}-mass body (Esc releases)`);
     if (debugVisible) parts.push('Debug overlay on (D)');
     followStatus.textContent = parts.join(' · ');
   }
@@ -483,7 +506,7 @@ const sketch = (p: p5) => {
     const distance = followed.position.sub(centre).magnitude();
 
     const parts = [
-      `mass ${Math.round(followed.mass)}`,
+      `mass ${formatMass(followed.mass)}`,
       `speed ${speed.toFixed(2)}`,
       `force ${force.toPrecision(3)}`,
       `${distance.toFixed(0)} from barycentre`,
@@ -769,6 +792,7 @@ const sketch = (p: p5) => {
       })),
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
       trailLength: sceneTrailLength,
+      timeStep: sceneTimeStep,
       showVectorField: showVectorsCheckbox.checked,
       showParticleVectors: showParticleVectorsCheckbox.checked,
       showTrails: showTrailsCheckbox.checked,
@@ -826,6 +850,7 @@ const sketch = (p: p5) => {
     }
 
     if (scene.trailLength !== undefined) sceneTrailLength = scene.trailLength;
+    if (scene.timeStep !== undefined) sceneTimeStep = scene.timeStep;
 
     if (scene.showVectorField !== undefined) {
       showVectorsCheckbox.checked = scene.showVectorField;
@@ -1116,6 +1141,12 @@ const sketch = (p: p5) => {
       engine.addParticle(particle);
     }
 
+    // The pace is part of the scene's setup too, and is reset on every load for
+    // the same reason the overlays are: one scene's choice must not follow the
+    // viewer into the next, where it would look like the simulation had sped up
+    // on its own.
+    sceneTimeStep = preset.timeStep ?? 1;
+
     camera.resetCameraTo(preset.zoom);
 
     // Overlays are part of a scene's setup, the same way its zoom and trail
@@ -1160,7 +1191,7 @@ const sketch = (p: p5) => {
       item.className = 'particle-item';
 
       const info = document.createElement('span');
-      info.textContent = `#${index + 1} - Mass: ${Math.round(particle.mass)}`;
+      info.textContent = `#${index + 1} - Mass: ${formatMass(particle.mass)}`;
 
       const deleteBtn = document.createElement('button');
       deleteBtn.textContent = '✕';
@@ -1215,6 +1246,19 @@ const sketch = (p: p5) => {
         ? 'Streamlines:'
         : 'Vector Field:';
     if (legendTitle.textContent !== title) legendTitle.textContent = title;
+
+    // With the overlay off the field is not even sampled, so the numbers below
+    // it would be whatever the last scene that drew one left behind. Same rule
+    // as the streamline case below: a stale reading is worse than none, because
+    // nothing about it looks stale. After the title, not before — the title
+    // still describes what the mode *would* draw.
+    if (!renderer.showVectorField) {
+      legendRamp.style.display = 'none';
+      setLegendText(legendMin, '');
+      setLegendText(legendMax, '');
+      setLegendText(legendScale, 'field overlay off');
+      return;
+    }
 
     if (mode === 'streamlines') {
       // A streamline has a direction but no magnitude, so the colour ramp is

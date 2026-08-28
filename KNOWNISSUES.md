@@ -229,12 +229,20 @@ Newtonian is not a defect either. The 43″ per century that general relativity
 contributes to that same number is the one thing this cannot produce, and a
 Newtonian simulation that produced it would have a bug.
 
-A century is also a short window for the outer planets — Neptune completes two
-thirds of an orbit in it — so their rows in [`EPHEMERIS.md`](EPHEMERIS.md)
-measure the phase of a long oscillation rather than a rate, and Venus's
-perihelion is ill-conditioned at e = 0.0068 whatever the window. Both are
-roadmap M14, and both are stated in the document beside the numbers they
-qualify.
+The published run is a Julian millennium (roadmap M14), which settled most of
+what a century could not: every orbital period now lands within 0.35%, and
+Jupiter's perihelion — which had the wrong sign over a century — comes out
+within 10%. Two rows still do not settle, and both are stated in
+[`EPHEMERIS.md`](EPHEMERIS.md) beside the numbers they qualify:
+
+- **Saturn**, because a millennium is 1.1 cycles of its 900-year exchange with
+  Jupiter, and a window has to cover several cycles of a thing to average it
+  away.
+- **Venus**, whose published perihelion rate of +9.7″ a century is the small
+  residue of perturbations worth hundreds of arcseconds each. The measurement
+  is not the problem — fitting `e·sin ϖ` and `e·cos ϖ` gives the same answer as
+  fitting ϖ directly — the flat model is: a few per cent off each of several
+  hundred arcseconds is larger than the residue they add up to.
 
 ## The debug overlay costs a full pairwise pass
 
@@ -247,6 +255,34 @@ few thousand, leaving the overlay open is measurably slower than not.
 The drift figures are relative to the moment the overlay was opened, not to the
 start of the scene. A scene that has been merging bodies has lost kinetic energy
 legitimately, and that swamps everything else if it is counted.
+
+## The solar system scene is to scale in distance, not in size or time
+
+Three compromises, all of them forced, all of them visible in the scene rather
+than hidden:
+
+- **Sizes.** The Sun is 109 Earths across and the Earth's orbit is 23,000 Suns
+  around, so no zoom shows both the bodies and their orbits. Bodies are never
+  drawn smaller than three pixels across, so below that everything is the same
+  dot. The distances are exact.
+- **Time.** One simulation unit is 398 seconds at this scale, so the scene sets
+  `timeStep` to 110 — about twelve hours a frame, an Earth year in ten seconds.
+  That is a display choice rather than a change to the physics, and the adaptive
+  rule still subdivides it when a close pair needs it.
+- **The field overlay does not work here.** `VectorField` drops samples whose
+  force is below an absolute 0.001, and the field at the Earth's distance from a
+  Sun weighing 0.0126 units is 6e-7 — so the overlay would be empty, and the
+  scene ships with it off. The threshold is absolute because the sampler applies
+  it while deciding where to sample, before it knows the range. The per-body
+  force and velocity arrows *do* work: they are scaled against the range present
+  in the frame, so they needed no such number once the constants that used to
+  gate them were removed.
+
+Masses in this scene are correspondingly small — the Sun is 0.0126 units and the
+Earth 3.8e-8 — because the radius rule `r = 2·m^(1/3)` ties mass to size, and a
+Sun heavy enough to read as a round number would have a radius wider than
+Mercury's orbit. Readouts show three significant figures rather than rounding
+such masses to zero.
 
 ## Barnes-Hut gives up exact momentum conservation
 

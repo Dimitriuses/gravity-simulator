@@ -4,11 +4,18 @@
 //   npm run ephemeris -- --write  dump EPHEMERIS.generated.md to paste in
 //   npm run ephemeris -- --quick  a tenth of the span, for a smoke run
 //
-// Roadmap M8. Every other scene in this repository was chosen — the presets
-// derive their velocities from an orbit equation so that they do what they say
-// they do. This one is not chosen: it starts from the planets' published
-// orbital elements at J2000, runs a Julian century, and reads the orbits back
-// out. What comes out is either what the sky does or the simulation is wrong.
+// Roadmap M8, extended by M14. Every other scene in this repository was chosen
+// — the presets derive their velocities from an orbit equation so that they do
+// what they say they do. This one is not chosen: it starts from the planets'
+// published orbital elements at J2000, runs a Julian *millennium*, and reads
+// the orbits back out. What comes out is either what the sky does or the
+// simulation is wrong.
+//
+// Rates are reported over two windows cut from the same run — the first century
+// of it and the whole of it. A century is 0.6 of an orbit of Neptune, which is
+// not enough of one to say how fast its orbit turns; a millennium is six. The
+// century column is kept because that is the window JPL's published rates are
+// fitted over, so it is the one that can be compared with them directly.
 //
 // Loads the TypeScript sources through Vite's SSR loader, so this measures the
 // same engine, the same force law and the same integrators the browser runs.
@@ -35,7 +42,24 @@ const { PLANETS, SUN_MASS_KG, SUN_RADIUS_METRES } = ephemeris;
 
 /** The span to integrate, in simulation time units. */
 const CENTURY = units.toTimeUnits(CENTURY_IN_SECONDS, SCALE);
-const SPAN = QUICK ? CENTURY / 10 : CENTURY;
+const MILLENNIUM = CENTURY * 10;
+const SPAN = QUICK ? CENTURY / 10 : MILLENNIUM;
+
+/**
+ * How often the orbits are read back, in simulation time units.
+ *
+ * Tied to the *shortest* orbit rather than to the span, which is the trap a
+ * longer window opens: sampling a millennium three thousand times puts four
+ * months between readings, and Mercury goes round in three. The turn counter
+ * and the perihelion unwrapping both need better than half an orbit between
+ * samples, so this takes an eighth of Mercury's year and leaves the sample
+ * count to follow from the span.
+ */
+const MERCURY_PERIOD = units.toTimeUnits(
+  PLANETS[0].siderealPeriodDays * DAY_IN_SECONDS,
+  SCALE
+);
+const SAMPLE_INTERVAL = MERCURY_PERIOD / 8;
 
 /**
  * The step the published run uses, in simulation time units.
@@ -155,6 +179,45 @@ function slope(xs, ys) {
 }
 
 /**
+ * The rate a perihelion turns, from `h = e·sin ϖ` and `k = e·cos ϖ`.
+ *
+ * Taking the slope of ϖ directly works while an orbit is elliptical enough to
+ * have a definite perihelion, and stops working as `e` approaches zero: where
+ * the perihelion *is* stops meaning much, it swings about wildly, and a fit to
+ * it measures the swinging. Venus, at e = 0.0068, is the case in point — the
+ * century run put its perihelion rate at -270″ against a published +9.7″.
+ *
+ * `h` and `k` have no such problem: they are smooth through a circular orbit,
+ * because the pair carries the eccentricity *and* the direction together, and
+ * neither has to be unwrapped. Since `ϖ = atan2(h, k)`,
+ *
+ * ```
+ *   dϖ/dt = (k·ḣ - h·k̇) / (h² + k²)
+ * ```
+ *
+ * with `ḣ` and `k̇` the fitted slopes and `h`, `k` their means over the window.
+ * It is the standard way to quote a secular rate for a near-circular orbit and
+ * agrees with the direct fit wherever the direct fit is trustworthy.
+ */
+function perihelionRate(times, h, k) {
+  const hDot = slope(times, h);
+  const kDot = slope(times, k);
+
+  let meanH = 0;
+  let meanK = 0;
+  for (let i = 0; i < h.length; i++) {
+    meanH += h[i] / h.length;
+    meanK += k[i] / k.length;
+  }
+
+  const eSquared = meanH * meanH + meanK * meanK;
+  if (!(eSquared > 0)) return 0;
+
+  // Radians per century, converted to degrees for the same units as the table.
+  return ((meanK * hDot - meanH * kDot) / eSquared) * (180 / Math.PI);
+}
+
+/**
  * Integrate, and watch each planet's orbit.
  *
  * Every so often the *osculating* ellipse is read back out of the state — the
@@ -168,7 +231,7 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
   const { engine, sun, bodies } = build(integrator, only);
   const start = totals(engine);
 
-  const sampleEvery = Math.max(1, Math.round(span / step / 3000));
+  const sampleEvery = Math.max(1, Math.round(SAMPLE_INTERVAL / step));
   const tracks = bodies.map(({ body, mu }) => ({
     body,
     mu,
@@ -176,6 +239,9 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
     a: [],
     e: [],
     periapsis: [],
+    // e·sin ϖ and e·cos ϖ. See `perihelionRate` below for why.
+    h: [],
+    k: [],
     turns: 0,
     lastAngle: null,
     longitude: 0,
@@ -198,10 +264,14 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
         ? track.periapsis[track.periapsis.length - 1]
         : elements.periapsisDegrees;
 
+      const periapsis = elements.periapsisDegrees * (Math.PI / 180);
+
       track.times.push(time);
       track.a.push(elements.a);
       track.e.push(elements.e);
       track.periapsis.push(previous + ephemeris.wrapDegrees(elements.periapsisDegrees - previous));
+      track.h.push(elements.e * Math.sin(periapsis));
+      track.k.push(elements.e * Math.cos(periapsis));
     }
   };
 
@@ -227,6 +297,26 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
     const last = track.times.length - 1;
     const turns = (track.longitude - track.firstAngle) / (2 * Math.PI);
 
+    /** Everything measurable about this orbit over the first `windows` centuries. */
+    const over = (windowCenturies) => {
+      const end = at.findIndex((t) => t > windowCenturies);
+      const upto = end === -1 ? at.length : end;
+
+      const t = at.slice(0, upto);
+      return {
+        centuries: t[t.length - 1],
+        aRate: slope(t, track.a.slice(0, upto)) / 100,
+        eRate: slope(t, track.e.slice(0, upto)),
+        // A least-squares slope, not the difference between the ends, because
+        // that is what the published rates are: a linear model fitted across
+        // the window. An element wanders as well as drifting, so the two
+        // answers differ — for Mercury by half an arcsecond, for the Earth by
+        // sixty.
+        periapsisRate: slope(t, track.periapsis.slice(0, upto)),
+        hkRate: perihelionRate(t, track.h.slice(0, upto), track.k.slice(0, upto)),
+      };
+    };
+
     return {
       name: track.body.name,
       published: track.body,
@@ -234,14 +324,12 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
       turns,
       a: track.a[0] / 100,
       e: track.e[0],
+      century: over(1),
+      full: over(centuries),
+      // The whole-run figures, for callers that want one number.
       aRate: slope(at, track.a) / 100,
       eRate: slope(at, track.e),
-      // A least-squares slope, not the difference between the ends, because
-      // that is what the published rates are: a linear model fitted across the
-      // century. An element wanders as well as drifting, so the two answers
-      // differ — for Mercury by half an arcsecond, for the Earth by sixty.
       periapsisRate: slope(at, track.periapsis),
-      endpointRate: (track.periapsis[last] - track.periapsis[0]) / centuries,
     };
   });
 
@@ -258,8 +346,13 @@ function run({ integrator = 'rk4', step = STEP, span = SPAN, only = null } = {})
 
 // ─── Runs ────────────────────────────────────────────────────────────────────
 const publishedRun = run();
-const halfStep = run({ step: STEP / 2 });
-const verletRun = run({ integrator: 'verlet' });
+
+// The two comparisons below are about the arithmetic rather than the window, so
+// they run over a century: ten times the integration to make the same point
+// would be ten times the wait.
+const comparisonSpan = QUICK ? SPAN : CENTURY;
+const halfStep = run({ step: STEP / 2, span: comparisonSpan });
+const verletRun = run({ integrator: 'verlet', span: comparisonSpan });
 
 // Sun and Mercury alone: a two-body problem, whose perihelion cannot move at
 // all. Whatever this reports is the integrator's own invention.
@@ -324,7 +417,8 @@ line('');
 line('## Orbital periods');
 line('');
 line('Measured by watching each planet go round: the total angle it sweeps over the');
-line('run, divided into the time it takes. Published figures are sidereal periods.');
+line('whole run, divided into the time it takes. Published figures are sidereal');
+line('periods.');
 line('');
 line('| planet | measured | published | difference | orbits in the window |');
 line('|---|---:|---:|---:|---:|');
@@ -336,28 +430,37 @@ for (const r of publishedRun.results) {
   );
 }
 line('');
-line('The last column is why the giants are the ragged rows here and everywhere');
-line('below. A century is 415 orbits of Mercury and two thirds of one of Neptune,');
-line('and two thirds of an ellipse is not enough to say how long the whole of it');
-line('takes: the planet spends that stretch at whatever speed that part of the');
-line('orbit calls for, and dividing angle by time reports that instead of a mean.');
+line('The last column is why a century was not enough on its own. Over one, Neptune');
+line('completes two thirds of an orbit, and two thirds of an ellipse cannot say how');
+line('long the whole of it takes: the planet spends that stretch at whatever speed');
+line('that part of the orbit calls for, and dividing angle by time reports that');
+line('rather than a mean. Over a millennium every planet here goes round at least');
+line('six times.');
 line('');
 
-line('## How the orbits change over the century');
+line('## How the orbits change');
 line('');
 line("JPL publishes each element's rate of change per century alongside the elements");
 line('themselves. Those rates are the real solar system perturbing itself, and they');
 line('are what the run is checked against. Semi-major axis in au per century,');
-line('eccentricity per century.');
+line('eccentricity per century, both fitted over the first century of the run and');
+line('over the whole millennium.');
 line('');
-line('| planet | da/dt | published | de/dt | published |');
-line('|---|---:|---:|---:|---:|');
+line('| planet | da/dt, century | millennium | published | de/dt, century | millennium | published |');
+line('|---|---:|---:|---:|---:|---:|---:|');
 for (const r of publishedRun.results) {
   line(
-    `| ${r.name} | ${signed(r.aRate, 7)} | ${signed(r.published.rates.a, 7)} | ` +
-      `${signed(r.eRate, 7)} | ${signed(r.published.rates.e, 7)} |`
+    `| ${r.name} | ${signed(r.century.aRate, 7)} | ${signed(r.full.aRate, 7)} | ` +
+      `${signed(r.published.rates.a, 7)} | ${signed(r.century.eRate, 7)} | ` +
+      `${signed(r.full.eRate, 7)} | ${signed(r.published.rates.e, 7)} |`
   );
 }
+line('');
+line('The published column is a linear fit over roughly 1800–2050, so the century');
+line('column is the one directly comparable with it. Where the millennium column');
+line('disagrees, the disagreement is not noise: it is the difference between a rate');
+line('quoted for now and the same rate averaged over ten times longer, which for');
+line('elements that oscillate on centuries-long cycles is a real difference.');
 line('');
 
 line('## Where the perihelia go');
@@ -365,28 +468,52 @@ line('');
 line('The turning of an orbit is the hardest of these to fake and the easiest to');
 line('get wrong, so it is the one worth reading closely.');
 line('');
-line('| planet | e | measured dϖ/dt | published | difference |');
-line('|---|---:|---:|---:|---:|');
+line('| planet | e | century | millennium | published | difference |');
+line('|---|---:|---:|---:|---:|---:|');
 for (const r of publishedRun.results) {
-  const measured = arcseconds(r.periapsisRate);
   const real = arcseconds(r.published.rates.periapsis);
+  const century = arcseconds(r.century.hkRate);
+  const millennium = arcseconds(r.full.hkRate);
   line(
-    `| ${r.name} | ${r.published.e.toFixed(4)} | ${signed(measured, 1)}″ | ${signed(real, 1)}″ | ` +
-      `${signed(measured - real, 1)}″ |`
+    `| ${r.name} | ${r.published.e.toFixed(4)} | ${signed(century, 1)}″ | ` +
+      `${signed(millennium, 1)}″ | ${signed(real, 1)}″ | ${signed(century - real, 1)}″ |`
   );
 }
 line('');
-line('The four inner planets are the meaningful rows, and Venus is the awkward one');
-line("of those: its orbit is so nearly circular (e = 0.0068) that where its perihelion");
-line('*is* barely means anything, and both the measurement and the published rate are');
-line('small differences of large wandering quantities. The giants complete 8, 3, 1 and');
-line('0.6 orbits in a century between them, which is not enough of an orbit to quote a');
-line('rate of turn for — Jupiter and Saturn also swap angular momentum on a 900-year');
-line('cycle, so a century-long window catches a phase of that rather than a trend.');
+line('Both columns come from `h = e·sin ϖ` and `k = e·cos ϖ` rather than from a fit');
+line('to ϖ itself. Where a nearly circular orbit keeps its perihelion barely means');
+line('anything and the angle swings about; h and k stay smooth through it, because');
+line('the pair carries the eccentricity and the direction together, and');
+line('`dϖ/dt = (k·ḣ - h·k̇)/(h² + k²)` recovers the rate. The difference column');
+line('compares the century, since that is the window the published rates are fitted');
+line('over.');
+line('');
+line('What the longer window settled, and what it did not:');
+line('');
+line('- **Mercury, Earth and Mars were already settled** and stay where they were —');
+line('  Mercury moves by 0.4″ between a century and a millennium, which is the more');
+line('  useful fact about it than either number alone.');
+line('- **Jupiter and Uranus needed the length.** Over a century Jupiter came out at');
+line('  -532″ against a published +765″, with the sign wrong; over a millennium it is');
+line('  +837″. Uranus goes from +7,857″ to +1,672″ against +1,469″. Both now sit about');
+line("  10% high, which is the same direction and roughly the same size as Mercury's");
+line('  flattening error.');
+line('- **Saturn and Neptune are still not settled.** Saturn swings from +950″ to');
+line('  +2,086″ against a published -1,508″, and a millennium is only 1.1 cycles of');
+line('  the 900-year exchange it has with Jupiter — not enough of one to average it');
+line("  away. Neptune's rate is small and its orbit is nearly circular, so the same");
+line('  applies with less to measure.');
+line('- **Venus is not an estimator problem**, which is what this method was brought');
+line('  in to establish. h/k and a direct fit to ϖ agree at about -270″ a century,');
+line("  against a published +9.7″, so the disagreement is in the physics rather than");
+line('  the arithmetic: that +9.7″ is the small residue of perturbations worth');
+line('  hundreds of arcseconds each, and the flat model gets each of those a few');
+line('  per cent wrong. A few per cent of hundreds is larger than the answer.');
 line('');
 
 const mercury = publishedRun.byName.Mercury;
-const measured = arcseconds(mercury.periapsisRate);
+const measured = arcseconds(mercury.century.hkRate);
+const measuredLong = arcseconds(mercury.full.hkRate);
 const observed = arcseconds(PLANETS[0].rates.periapsis);
 
 line("## Mercury's perihelion");
@@ -395,10 +522,20 @@ line('The one this was worth doing for.');
 line('');
 line('| | arcseconds per century |');
 line('|---|---:|');
-line(`| **this simulation**, eight planets, Newtonian gravity, flat | **${signed(measured, 1)}″** |`);
+line(
+  `| **this simulation**, eight planets, Newtonian gravity, flat | **${signed(measured, 1)}″** |`
+);
+line(`| the same run, averaged over the whole millennium | ${signed(measuredLong, 1)}″ |`);
 line(`| the Newtonian part, as classical perturbation theory decomposes it | ${NEWTONIAN.toFixed(1)}″ |`);
 line(`| observed, from JPL's rate for ϖ | ${observed.toFixed(1)}″ |`);
 line(`| general relativity's share of that, which Newton cannot produce | ${RELATIVITY.toFixed(2)}″ |`);
+line('');
+line(
+  `Between the two windows it moves by ${Math.abs(measured - measuredLong).toFixed(1)}″, which is worth as much as` +
+    ' either'
+);
+line('figure: a number that holds over ten times the integration is not an artefact');
+line('of where the run happened to stop.');
 line('');
 line(`The simulation lands ${signed(measured - NEWTONIAN, 1)}″ from the Newtonian figure`);
 line(`and ${signed(measured - observed, 1)}″ short of the observed one. The shortfall is the size`);
@@ -451,12 +588,12 @@ line(
 line(
   `| RK4, step ${STEP / 2} | ${halfStep.energyDrift.toExponential(1)} | ` +
     `${halfStep.angularDrift.toExponential(1)} | ` +
-    `${signed(arcseconds(halfStep.byName.Mercury.periapsisRate), 1)}″ |`
+    `${signed(arcseconds(halfStep.byName.Mercury.century.hkRate), 1)}″ |`
 );
 line(
   `| Verlet, step ${STEP} | ${verletRun.energyDrift.toExponential(1)} | ` +
     `${verletRun.angularDrift.toExponential(1)} | ` +
-    `${signed(arcseconds(verletRun.byName.Mercury.periapsisRate), 1)}″ |`
+    `${signed(arcseconds(verletRun.byName.Mercury.century.hkRate), 1)}″ |`
 );
 line('');
 line(
@@ -466,7 +603,7 @@ line(
 );
 line(
   `Halving the step moves Mercury's rate by ` +
-    `${Math.abs(measured - arcseconds(halfStep.byName.Mercury.periapsisRate)).toFixed(2)}″, so the`
+    `${Math.abs(measured - arcseconds(halfStep.byName.Mercury.century.hkRate)).toFixed(2)}″, so the`
 );
 line('figure has stopped depending on it.');
 line('');

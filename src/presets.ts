@@ -1,5 +1,7 @@
 import { Particle } from './Particle';
 import { SIMULATION_G } from './PhysicsEngine';
+import { PLANETS, SUN_MASS_KG, massInUnits, stateFromElements } from './ephemeris';
+import { SOLAR_SYSTEM_SCALE, toMassUnits } from './units';
 
 /**
  * Starting scenes.
@@ -56,6 +58,17 @@ export interface Preset {
    * arrows in the galaxy, which is neither affordable nor readable.
    */
   showParticleVectors?: boolean;
+  /**
+   * How much simulated time one frame advances. Defaults to 1.
+   *
+   * Every hand-built scene here is written in units where 1 is a good step, so
+   * this exists for the one scene that is not: the solar system is in real
+   * units, where a step of 1 is 398 seconds and the Earth would take
+   * twenty-two minutes to go round once. It is a *display* choice — the step
+   * the integrator takes, not a change to the physics — and the adaptive rule
+   * still subdivides it when a close pair needs it.
+   */
+  timeStep?: number;
   bodies: PresetBody[];
 }
 
@@ -265,6 +278,47 @@ const COMET_PERIHELION = 180;
 // (see INTEGRATORS.md).
 const PROBE_MASS = 20;
 
+/**
+ * The real solar system, at a hundred units to the astronomical unit.
+ *
+ * The only scene here whose numbers were not chosen: the positions and
+ * velocities come from the planets' published orbital elements at J2000,
+ * through the same `src/ephemeris.ts` that `npm run ephemeris` measures a
+ * millennium with. Reading it back gives the real orbital periods to a fraction
+ * of a percent and Mercury's perihelion advance to about 3%, which is written
+ * up in [EPHEMERIS.md](EPHEMERIS.md).
+ *
+ * Two things about it are *not* to scale, and both are forced:
+ *
+ * - **Sizes.** The Sun is 109 Earths wide and the Earth's orbit is 23,000 Suns
+ *   around, so no single zoom shows both the bodies and their orbits. The
+ *   renderer draws anything below a few pixels at a few pixels; the distances
+ *   are exact and the dots are not.
+ * - **Time.** One simulation unit is 398 seconds here, so `timeStep` runs a
+ *   frame at about twelve hours to keep the Earth's year to a watchable ten
+ *   seconds. Mercury goes round in three, and Neptune takes half an hour.
+ */
+function solarSystemBodies(): PresetBody[] {
+  const scale = SOLAR_SYSTEM_SCALE;
+
+  const bodies: PresetBody[] = [
+    { x: 0, y: 0, mass: toMassUnits(SUN_MASS_KG, scale), vx: 0, vy: 0 },
+  ];
+
+  for (const planet of PLANETS) {
+    const state = stateFromElements(planet, scale);
+    bodies.push({
+      x: state.x,
+      y: state.y,
+      mass: massInUnits(planet.gm, scale),
+      vx: state.vx,
+      vy: state.vy,
+    });
+  }
+
+  return bodies;
+}
+
 export const PRESETS: Preset[] = [
   {
     id: 'binary',
@@ -370,6 +424,30 @@ export const PRESETS: Preset[] = [
     // about their points visible rather than inferred.
     trailLength: 1000,
     bodies: balanced(lagrangeBodies()),
+  },
+  {
+    id: 'solar-system',
+    name: 'Solar System (J2000)',
+    summary: 'The eight planets from their published elements, a hundred units to the au',
+    // Frames the inner system and Jupiter's orbit. Saturn is at 954 units and
+    // Neptune at 3,007, so zooming out is rewarded: the four rocky planets sit
+    // inside a fifth of Jupiter's orbit, which is the fact about the solar
+    // system that a diagram never manages to show.
+    zoom: 1,
+    // About twelve hours a frame: an Earth year in ten seconds. See
+    // `Preset.timeStep`.
+    timeStep: 110,
+    // One Earth orbit's worth, so the inner planets draw closed curves and the
+    // giants draw the arcs they have had time for.
+    trailLength: 800,
+    // The field overlay cannot draw this scene: `VectorField` drops samples
+    // below an absolute 0.001, and the field at the Earth's distance from a
+    // Sun weighing 0.0126 units is 6e-7. It is switched off rather than left on
+    // and empty. The per-body arrows do work — they are scaled against the
+    // range in the frame rather than against a constant — and are worth having
+    // here, since the whole scene is one body pulling on eight.
+    showVectorField: false,
+    bodies: balanced(solarSystemBodies()),
   },
   {
     id: 'galaxy',

@@ -30,6 +30,15 @@ export const SCENE_FORMAT_VERSION = 1;
  *
  * Well above the largest preset (300) and far below what would hang a tab.
  */
+/**
+ * The largest step a link may ask for.
+ *
+ * The solar system, the scene this exists for, uses 110. A thousand is far
+ * beyond any scene here and still short of the range where a single step
+ * carries a body clean through the system.
+ */
+export const MAX_TIME_STEP = 1000;
+
 export const MAX_DECODED_BODIES = 5000;
 
 /**
@@ -57,6 +66,16 @@ export interface SavedScene {
   forceMode?: ForceMode;
   adaptiveStepping?: boolean;
   restitution?: number;
+  /**
+   * How much simulated time one frame advances, when the scene is not happy
+   * with 1.
+   *
+   * Carried because it changes what the scene *does* rather than how it is
+   * being looked at: the solar system runs at 110 units a frame because one
+   * unit is 398 seconds there, and a link that dropped it would open on a
+   * picture that appears to be frozen.
+   */
+  timeStep?: number;
   /** Per body, in the same order as `bodies`. Omitted when nothing is turning. */
   spin?: { angle: number; angularVelocity: number }[];
 }
@@ -117,6 +136,7 @@ export function encodeScene(scene: SavedScene): string {
   // link. The version is for changes that would be *misread*, not for
   // additions.
   if (scene.restitution !== undefined) fields.push(`r=${num(scene.restitution)}`);
+  if (scene.timeStep !== undefined) fields.push(`d=${num(scene.timeStep)}`);
 
   if (scene.spin) {
     fields.push(
@@ -230,6 +250,18 @@ export function decodeScene(text: string): DecodeResult {
       return { error: 'bad restitution' };
     }
     scene.restitution = parsed;
+  }
+
+  const timeStep = fields.get('d');
+  if (timeStep !== undefined) {
+    const parsed = Number(timeStep);
+    // Bounded because it is reachable from outside: a step of zero freezes the
+    // simulation with no way back, and a huge one puts every body through the
+    // whole scene in a frame.
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > MAX_TIME_STEP) {
+      return { error: 'bad time step' };
+    }
+    scene.timeStep = parsed;
   }
 
   const spin = fields.get('w');

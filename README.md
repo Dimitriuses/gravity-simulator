@@ -101,6 +101,17 @@ The **Figure eight** scene: three equal masses chasing each other around one
 closed curve, a solution found by Chenciner and Montgomery in 2000. The trail is
 one full period long, which is what makes the curve a curve rather than an arc.
 
+![The inner solar system, its four rocky planets drawn from J2000 orbital elements](screenshots/10-solar-system.png)
+
+The **Solar System** scene is the one whose numbers nobody here chose: the nine
+bodies start from the planets' published orbital elements at J2000, a hundred
+units to the astronomical unit. The Earth goes round in about ten seconds and
+comes back within 0.1% of a real year; Mercury takes three. Distances are exact
+and sizes are not — the Sun is 109 Earths wide and the Earth's orbit is 23,000
+Suns around, so nothing below a few pixels is drawn any smaller than that.
+[`EPHEMERIS.md`](EPHEMERIS.md) is the same starting data taken seriously, over a
+thousand years.
+
 ## Controls
 
 | Input | Action |
@@ -115,7 +126,7 @@ one full period long, which is what makes the curve a curve rather than an arc.
 | **Reset Camera** | Back to origin at 100% |
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
-| **Scene** dropdown | Load a starting scene; the camera reframes to fit it |
+| **Scene** dropdown | Load a starting scene; the camera reframes to fit it, and the Solar System sets its own pace as well |
 | **Reload** | Rebuild the current scene from scratch |
 | **Copy Link** | Put the scene as it stands into the address bar, and on the clipboard |
 | **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact, set how bouncy it is, or force the exact force solver |
@@ -240,12 +251,12 @@ before trusting a change.
 ```bash
 npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 271 unit tests, headless, ~19s
+npm test            # 278 unit tests, headless, ~19s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
 npm run bench       # scaling and quadtree accuracy -> SCALING.md
-npm run ephemeris   # a century of the real solar system -> EPHEMERIS.md
+npm run ephemeris   # a millennium of the real solar system -> EPHEMERIS.md
 ```
 
 The unit tests cover the whole simulation core — vector maths, the force law and
@@ -259,19 +270,20 @@ confirm which schemes bound their energy error and which does not.
 
 None of that, though, says the simulation is *right* — only that it is
 consistent with itself. That is what `npm run ephemeris` is for: it loads the
-eight planets' published orbital elements at J2000, runs a Julian century, and
-compares what comes out against numbers measured by pointing instruments at the
-sky. Orbital periods land within a tenth of a percent, the Earth's and Mars's
+eight planets' published orbital elements at J2000, runs a Julian millennium,
+and compares what comes out against numbers measured by pointing instruments at
+the sky. Every orbital period lands within 0.35%, the Earth's and Mars's
 perihelia turn at their published rates to within 2%, and **Mercury's perihelion
 advances at 545″ per century against 578″ observed** — short by about the 43″
-that general relativity accounts for and Newtonian gravity cannot.
+that general relativity accounts for and Newtonian gravity cannot, and steady to
+0.4″ whether it is measured over the first century of the run or all ten.
 [`EPHEMERIS.md`](EPHEMERIS.md) has the tables, the caveats, and the reason the
 measurement is run through RK4 rather than the default integrator.
 
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 100 properties, including that the background is the intended navy, that
+asserts 105 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the

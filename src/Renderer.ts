@@ -16,9 +16,15 @@ import { niceScaleLength } from './scalebar';
 const PARTICLE_ARROW_MIN_LENGTH = 18;
 const PARTICLE_ARROW_MAX_LENGTH = 60;
 
-/** Below these, an arrow says nothing worth the clutter. */
+/**
+ * Below this, a *field* arrow says nothing worth the clutter.
+ *
+ * Absolute, and it can only be absolute: the field pass decides whether to draw
+ * each sample as it goes, and the range it would compare against is the thing
+ * being computed. See `drawParticleVectors` for the per-body arrows, which do
+ * know their range and therefore need no such number.
+ */
 const MIN_DRAWN_FORCE = 1e-6;
-const MIN_DRAWN_SPEED = 0.01;
 
 /** Colours, RGB. These match the on-page legend in index.html. */
 const COLOR_BACKGROUND = [10, 15, 30] as const;
@@ -81,6 +87,20 @@ const COLOR_SCALE_BAR = [150, 165, 190] as const;
 const COLOR_FOLLOW_RING = [255, 200, 0] as const;
 const COLOR_DEBUG_TEXT = [190, 210, 240] as const;
 const COLOR_DEBUG_PANEL = [10, 15, 30, 200] as const;
+
+/**
+ * The smallest a body is ever drawn, in screen pixels across.
+ *
+ * Sizes and distances in a real system cannot share a zoom: the Sun is 109
+ * Earths wide, and the Earth's orbit is 23,000 Suns around. At the zoom that
+ * frames the solar system preset's orbits, the Earth is a fiftieth of a pixel
+ * and would simply not be there.
+ *
+ * So distance stays exact and size stops shrinking. Above this the picture is
+ * to scale; below it every body is the same dot, which is the honest way for a
+ * pixel to say "something is here, and it is smaller than me".
+ */
+const MIN_DRAWN_DIAMETER_PX = 3;
 
 /** How far outside a followed body its ring sits, in screen pixels. */
 const FOLLOW_RING_MARGIN_PX = 8;
@@ -596,7 +616,15 @@ export class Renderer {
     this.p.push();
     for (const particle of particles) {
       const force = particle.netForce.magnitude();
-      if (force > MIN_DRAWN_FORCE) {
+      // Anything at all, rather than anything above a fixed number. The two
+      // constants that used to gate these were tuned for scenes whose masses
+      // are in the hundreds, and the solar system preset is in units where the
+      // Sun weighs 0.0126 and the force on the Earth is 2e-14: every arrow in
+      // it fell below the threshold and the scene drew none at all. The range
+      // below is what the arrows are scaled against, so a force that is small
+      // only in comparison already draws a short arrow — which is the picture
+      // those constants were trying to produce.
+      if (force > 0) {
         this.drawParticleArrow(
           particle,
           particle.netForce,
@@ -606,7 +634,7 @@ export class Renderer {
       }
 
       const speed = particle.velocity.magnitude();
-      if (speed > MIN_DRAWN_SPEED) {
+      if (speed > 0) {
         this.drawParticleArrow(
           particle,
           particle.velocity,
@@ -685,19 +713,23 @@ export class Renderer {
 
     this.p.push();
 
+    // In world units, so the comparison against a body's own radius is one
+    // subtraction rather than a transform per body.
+    const floor = MIN_DRAWN_DIAMETER_PX / (2 * this.zoom);
+    const drawnRadius = (particle: Particle) =>
+      Math.max(particle.radius * this.particleSizeMultiplier, floor);
+
     this.p.noStroke();
     this.p.fill(...COLOR_PARTICLE_GLOW, 30);
     for (const particle of particles) {
-      const visualRadius = particle.radius * this.particleSizeMultiplier;
-      this.p.circle(particle.position.x, particle.position.y, visualRadius * 3);
+      this.p.circle(particle.position.x, particle.position.y, drawnRadius(particle) * 3);
     }
 
     this.p.fill(...COLOR_PARTICLE_BODY);
     this.p.stroke(...COLOR_PARTICLE_EDGE);
     this.p.strokeWeight(2);
     for (const particle of particles) {
-      const visualRadius = particle.radius * this.particleSizeMultiplier;
-      this.p.circle(particle.position.x, particle.position.y, visualRadius * 2);
+      this.p.circle(particle.position.x, particle.position.y, drawnRadius(particle) * 2);
     }
 
     this.drawSpinMarkers(particles);

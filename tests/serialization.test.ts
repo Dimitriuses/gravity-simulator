@@ -236,3 +236,30 @@ describe('rejecting what it should reject', () => {
     expect(decoded('scene=v=1;s=binary').preset).toBe('binary');
   });
 });
+
+describe('the time step', () => {
+  it('survives a round trip', () => {
+    const text = encodeScene({ preset: 'solar-system', timeStep: 110 });
+    const result = decodeScene(text);
+
+    expect('scene' in result).toBe(true);
+    if ('scene' in result) expect(result.scene.timeStep).toBe(110);
+  });
+
+  it('is refused when it would freeze or shatter the scene', () => {
+    // Reachable from outside, like every other bound in this file: a step of
+    // zero stops the simulation with no way to restart it, and an enormous one
+    // puts every body through the whole system in a frame.
+    for (const bad of ['0', '-5', '100000', 'soon']) {
+      const result = decodeScene(`v=1;d=${bad}`);
+      expect('error' in result, `d=${bad}`).toBe(true);
+    }
+  });
+
+  it('is optional, and its absence means one', () => {
+    const result = decodeScene('v=1;s=binary');
+
+    expect('scene' in result).toBe(true);
+    if ('scene' in result) expect(result.scene.timeStep).toBeUndefined();
+  });
+});
