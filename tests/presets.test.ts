@@ -377,7 +377,8 @@ describe('solar system', () => {
 
       for (const index of inner) {
         const now = angle(index);
-        if (year[index] === 0 && step > 10 && previous[index] < start[index] && now >= start[index]) {
+        const crossed = previous[index] < start[index] && now >= start[index];
+        if (year[index] === 0 && step > 10 && crossed) {
           year[index] = step;
         }
         previous[index] = now;

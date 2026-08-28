@@ -37,6 +37,24 @@ const FOLLOW_PICK_RADIUS_PX = 24;
 const DEBUG_REFRESH_MS = 250;
 
 /**
+ * The largest share of wall-clock time the debug overlay may spend on itself.
+ *
+ * `diagnostics()` sums the potential over every *pair*, which is the one cost
+ * Barnes-Hut exists to avoid: 0.9 ms at three hundred bodies, 37 ms at two
+ * thousand. Four times a second, the first is nothing and the second is 15% of
+ * the machine.
+ *
+ * Roadmap M19 considered answering it from the tree instead and decided against
+ * — an approximate energy in a readout whose whole job is showing small drifts
+ * would have to carry a caveat, and the caveat is worse than the cost. So the
+ * readout is throttled by what it costs rather than by a fixed interval: it
+ * refreshes four times a second when it can afford to, and less often when it
+ * cannot, which is invisible on the scenes the app ships and keeps a
+ * two-thousand-body scene from stuttering.
+ */
+const DEBUG_TIME_BUDGET = 0.05;
+
+/**
  * How wide the window has to be before the control panel is allowed a second
  * column, in CSS pixels.
  *
@@ -191,6 +209,9 @@ const sketch = (p: p5) => {
   let debugBaseline: Diagnostics | null = null;
   let debugRefreshedAt = 0;
   let readoutRefreshedAt = 0;
+
+  /** How long to wait between overlay refreshes; see `DEBUG_TIME_BUDGET`. */
+  let debugInterval = DEBUG_REFRESH_MS;
 
   p.setup = () => {
     const canvas = p.createCanvas(p.windowWidth, p.windowHeight);
@@ -405,6 +426,7 @@ const sketch = (p: p5) => {
       // from what a viewer was looking at when they asked.
       debugBaseline = debugVisible ? engine.diagnostics() : null;
       debugRefreshedAt = 0;
+      debugInterval = DEBUG_REFRESH_MS;
       updateFollowStatus();
     }
   };
@@ -527,8 +549,10 @@ const sketch = (p: p5) => {
 
   function refreshDebugLines(): void {
     const now = performance.now();
-    if (now - debugRefreshedAt < DEBUG_REFRESH_MS) return;
+    if (now - debugRefreshedAt < debugInterval) return;
     debugRefreshedAt = now;
+
+    const startedAt = now;
 
     const sorted = [...frameTimes].sort((a, b) => a - b);
     const median = sorted.length ? sorted[sorted.length >> 1] : 0;
@@ -563,8 +587,16 @@ const sketch = (p: p5) => {
         0,
         baseline.momentumScale
       )}`,
-      `angular     ${drift(current.angularMomentum, baseline.angularMomentum, baseline.angularScale)}`,
+      `angular     ${drift(
+        current.angularMomentum,
+        baseline.angularMomentum,
+        baseline.angularScale
+      )}`,
     ];
+
+    // What that cost, and therefore how soon it may be paid again.
+    const spent = performance.now() - startedAt;
+    debugInterval = Math.max(DEBUG_REFRESH_MS, spent / DEBUG_TIME_BUDGET);
   }
 
   p.mouseWheel = (event: WheelEvent) => {

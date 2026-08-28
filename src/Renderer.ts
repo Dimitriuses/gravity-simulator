@@ -448,7 +448,11 @@ export class Renderer {
 
     // The image is reused between frames: allocating one per frame is a
     // megabyte of garbage a second at this resolution.
-    if (!this.heightmapImage || this.heightmapImage.width !== columns || this.heightmapImage.height !== rows) {
+    if (
+      !this.heightmapImage ||
+      this.heightmapImage.width !== columns ||
+      this.heightmapImage.height !== rows
+    ) {
       this.heightmapImage = this.p.createImage(columns, rows);
     }
 
@@ -460,7 +464,10 @@ export class Renderer {
       const t =
         logMax === logMin
           ? 0
-          : Math.min(1, Math.max(0, (Math.log(Math.max(magnitude, shallowest)) - logMin) / (logMax - logMin)));
+          : Math.min(
+              1,
+              Math.max(0, (Math.log(Math.max(magnitude, shallowest)) - logMin) / (logMax - logMin))
+            );
 
       // Same reading as everywhere else: blue is weak and far, red is deep.
       // Value rises with depth too, so the wells glow rather than merely
@@ -821,7 +828,8 @@ export class Renderer {
 
   /** Mass labels, for the bodies large enough on screen to carry one. */
   private drawMassLabels(particles: Particle[]): void {
-    const smallestLabelled = MIN_LABELLED_DIAMETER_PX / (2 * this.particleSizeMultiplier * this.zoom);
+    const smallestLabelled =
+      MIN_LABELLED_DIAMETER_PX / (2 * this.particleSizeMultiplier * this.zoom);
 
     let any = false;
     for (const particle of particles) {

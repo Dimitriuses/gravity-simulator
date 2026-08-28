@@ -98,7 +98,8 @@ export const toMassUnits = (kg: number, scale: Scale): number => kg / scale.kilo
 export const toKilograms = (units: number, scale: Scale): number => units * scale.kilogramsPerUnit;
 
 /** Seconds to simulation time units, and back. */
-export const toTimeUnits = (seconds: number, scale: Scale): number => seconds / scale.secondsPerUnit;
+export const toTimeUnits = (seconds: number, scale: Scale): number =>
+  seconds / scale.secondsPerUnit;
 export const toSeconds = (units: number, scale: Scale): number => units * scale.secondsPerUnit;
 
 /** Metres per second to simulation units of speed, and back. */

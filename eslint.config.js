@@ -47,6 +47,10 @@ export default tseslint.config(
       'no-fallthrough': 'error',
       // A promise nobody waits for is an error nobody sees.
       'no-async-promise-executor': 'error',
+      // The one layout rule this project enforces. See the note at the top of
+      // this file: there is no formatter, so the conventions the docs claim are
+      // kept by hand — and a claim nothing checks is a claim that drifts.
+      'max-len': ['error', { code: 100, ignoreUrls: true }],
     },
   },
 
@@ -64,6 +68,13 @@ export default tseslint.config(
       // error: it is doing something unusual on purpose, and the call sites say
       // so.
       'no-new-func': 'warn',
+      // Same limit as `src`, but not applied to strings: these tools print
+      // markdown, and a table row is one string whose length is the width of
+      // the table rather than a matter of layout.
+      'max-len': [
+        'error',
+        { code: 100, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true },
+      ],
     },
   },
 

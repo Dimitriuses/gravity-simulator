@@ -1,7 +1,13 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
 import { DEFAULT_THETA, QuadTree } from './quadtree';
-import { ContourLine, ScalarGrid, contourLevels, sampleScalarGrid, traceContours } from './contours';
+import {
+  ContourLine,
+  ScalarGrid,
+  contourLevels,
+  sampleScalarGrid,
+  traceContours,
+} from './contours';
 import { Streamline, defaultStreamlineOptions, traceStreamlines } from './streamlines';
 import { gravitationalPotential } from './forces';
 

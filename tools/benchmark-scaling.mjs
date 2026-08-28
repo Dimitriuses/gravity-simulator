@@ -299,14 +299,24 @@ for (const [count, wasted] of [
 ]) {
   const bodies = count === 300 ? presetParticles(PRESETS.find((p) => p.id === 'galaxy')) : galaxy(count);
 
+  /** A fresh copy, so the two engines start from the same scene. */
+  const copy = (body) =>
+    new Particle(
+      body.position.x,
+      body.position.y,
+      body.mass,
+      body.velocity.x,
+      body.velocity.y
+    );
+
   const adaptive = new PhysicsEngine(30);
   adaptive.collisionMode = 'none';
-  for (const body of bodies) adaptive.addParticle(new Particle(body.position ? body.position.x : body.x, body.position ? body.position.y : body.y, body.mass, body.velocity ? body.velocity.x : body.vx, body.velocity ? body.velocity.y : body.vy));
+  for (const body of bodies) adaptive.addParticle(copy(body));
 
   const fixed = new PhysicsEngine(30);
   fixed.collisionMode = 'none';
   fixed.adaptiveStepping = false;
-  for (const body of bodies) fixed.addParticle(new Particle(body.position ? body.position.x : body.x, body.position ? body.position.y : body.y, body.mass, body.velocity ? body.velocity.x : body.vx, body.velocity ? body.velocity.y : body.vy));
+  for (const body of bodies) fixed.addParticle(copy(body));
 
   const withAdaptive = time(5, () => adaptive.step());
   const withoutAdaptive = time(5, () => fixed.step());

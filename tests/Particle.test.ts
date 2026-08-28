@@ -41,7 +41,9 @@ describe('Particle', () => {
       const light = new Particle(500, 0, 100);
       const heavy = new Particle(500, 0, 300);
 
-      expect(a.attractionTo(heavy, 1).magnitude() / a.attractionTo(light, 1).magnitude()).toBeCloseTo(
+      const ratio =
+        a.attractionTo(heavy, 1).magnitude() / a.attractionTo(light, 1).magnitude();
+      expect(ratio).toBeCloseTo(
         3,
         6
       );

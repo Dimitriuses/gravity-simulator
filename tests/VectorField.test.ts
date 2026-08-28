@@ -319,7 +319,9 @@ describe('gradient mode', () => {
 
     // Panned by exactly one coarse cell, every sample still in view should sit
     // where it sat before.
-    const before = new Set(still.map((s) => `${s.position.x.toFixed(4)},${s.position.y.toFixed(4)}`));
+    const before = new Set(
+      still.map((s) => `${s.position.x.toFixed(4)},${s.position.y.toFixed(4)}`)
+    );
     const shared = field
       .getSamples()
       .filter((s) => before.has(`${s.position.x.toFixed(4)},${s.position.y.toFixed(4)}`));

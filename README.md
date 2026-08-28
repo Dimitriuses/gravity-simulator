@@ -369,10 +369,12 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active. Eighteen milestones are closed, including one that was measured and
-declined rather than built, and [`ROADMAP.md`](ROADMAP.md) keeps all of them as
-a record of what was tried as well as what worked. One is open: a group of small
-things, none of them urgent. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
+Nineteen milestones, all closed, and [`ROADMAP.md`](ROADMAP.md) keeps them as a
+record of what was tried as much as what worked — including three changes that
+were built, measured and then declined, with the numbers that decided it.
+[`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known limitation as resolved or
+accepted, and the accepted ones name the reason so that when a reason expires
+the item can be reconsidered. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
 limitation as resolved, accepted or open, and says which milestone owns the open
 ones.
 

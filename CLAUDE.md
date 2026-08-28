@@ -714,6 +714,12 @@ cost Barnes-Hut exists to avoid, so `main` calls it behind `debugVisible` and no
 more than every `DEBUG_REFRESH_MS`. The same rule as the vector field: if
 nothing is going to read it, do not compute it.
 
+The interval is what the last refresh *cost*, divided by a 5% budget, floored at
+`DEBUG_REFRESH_MS` — so the overlay stays at four times a second on any scene
+the app ships and slows itself down on one where the pairwise sum is expensive.
+Answering the potential from the tree instead was declined in M19: a readout
+whose job is showing small drifts cannot be approximate about them.
+
 Drift is measured from the moment the overlay was opened, not from the start of
 the scene — a scene that has been merging bodies has lost kinetic energy
 legitimately, and that swamps whatever the viewer is actually looking at.
@@ -814,6 +820,12 @@ npm, and npm 11 will happily reinstall from a lockfile that npm 10 rejects. See
 the header comment in `tools/verify-install.mjs`.
 
 ## Dependency notes
+
+The one layout rule enforced is `max-len` at 100 columns, over `src`, `tests`
+and `tools` — in `tools` it ignores strings, because those files print markdown
+and a table row is as wide as the table. There is deliberately no formatter
+(M19): adding one rewrites every file in a single commit. If a line will not fit
+under 100 columns, wrap it by hand the way the file around it does.
 
 `eslint` and `@eslint/js` must move together — `@eslint/js@10` declares a peer
 of `eslint@^10`, so installing the two at different majors is an `ERESOLVE`

@@ -18,17 +18,17 @@ Every entry is one of three things, and the index says which:
 | 2 | Which scheme bounds its error, and which does not | **Accepted**, and **resolved** in the respect that mattered: Forest-Ruth (M18) is both |
 | 3 | Contacts are resolved, but crudely | **Resolved** (M2, M6, M12, M16); no tidal torque is **accepted**, in M10 |
 | 4 | Arrow length is relative | **Resolved** (M5, M13, M17) |
-| 5 | Saving happens on its own; restoring does not | **Resolved** (M4, M11); the length of a link for a large scene is **open**, M19 |
+| 5 | Saving happens on its own; restoring does not | **Resolved** (M4, M11); the length of a link for a large scene is **accepted**, measured in M19 |
 | 6 | Performance ceiling | **Measured** (M3, M7, M15) — the field's sample budget is **accepted**, per-body stepping **declined with numbers** |
 | 7 | The default integrator turns orbits that should not turn | **Accepted** as a property of the *default*; M18 added a scheme that does not |
 | 8 | The solar system model is flat, and Newtonian | **Accepted** (M10); the windows that do not settle are **accepted** (M14) |
-| 9 | The debug overlay costs a full pairwise pass | **Open**, small — M19 |
+| 9 | The debug overlay costs a full pairwise pass | **Accepted**, and throttled by what it costs since M19 |
 | 10 | The solar system scene is to scale in distance, not size or time | **Accepted** — and the field overlay draws it since M17 |
 | 11 | Barnes-Hut gives up exact momentum conservation | **Accepted** (M10) |
 | 12 | Zooming out far in uniform mode coarsens the grid | **Accepted** |
 | 13 | Desktop only | **Accepted** (M10) |
 | 14 | Very short windows scroll the control panel | **Resolved** (M9, M13) |
-| 15 | The linter is narrow, and there is no formatter | **Accepted**, and the formatter is a decision rather than a defect — M19 |
+| 15 | The linter is narrow, and there is no formatter | **Accepted** — decided against in M19, with the column limit enforced instead |
 
 ---
 
@@ -204,11 +204,18 @@ interrupting a simulation for.
 
 Two smaller edges:
 
-- A link is as long as the scene is — *open, roadmap M19*: about 210 characters
-  for a four-body scene, and about 55 per body after that. The 300-body galaxy
-  is roughly 16,000 characters, which is fine in the address bar and too long
-  for most chat clients. Above 2,000 characters the app says so rather than
-  pretending otherwise, which is honest and not the same as fixing it.
+- A link is as long as the scene is: about 210 characters for a four-body scene,
+  and about 55 per body after that, so a 300-body scene is 12,476 of them —
+  fine in the address bar and too long for most chat clients. Above 2,000
+  characters the app says so rather than pretending otherwise.
+
+  Roadmap M19 tried to shorten it and stopped. Quantising to four significant
+  figures saves 27% and to five saves 13%, and both break the case in
+  `tests/serialization.test.ts` that pins a restored scene to evolving like the
+  one that was saved — at five it misses by a hair, which says the margin is the
+  property rather than slack. A binary encoding would reach 8,400 characters,
+  which is a third off for a format nobody can read by looking at it and still
+  past what a chat client takes.
 
 ## Performance ceiling
 
@@ -308,10 +315,16 @@ within 10%. Two rows still do not settle, and both are stated in
 
 ## The debug overlay costs a full pairwise pass
 
-*Open, roadmap M19.* `D` shows energy, momentum and angular momentum, and the
-potential term in the first of those is a sum over every *pair* — the one cost
-Barnes-Hut exists to avoid, and one the tree could do approximately for a
-readout that is already only refreshed four times a second. It is computed four times a second and only while the overlay is up, so a
+`D` shows energy, momentum and angular momentum, and the potential term in the
+first of those is a sum over every *pair* — the one cost Barnes-Hut exists to
+avoid. Measured: 0.90 ms at three hundred bodies, 37.5 ms at two thousand.
+
+Since roadmap M19 the overlay is throttled by what it costs rather than by a
+fixed interval, spending at most 5% of wall-clock time on itself: four times a
+second on any scene the app ships, and less often on one big enough for it to
+matter. Answering it approximately from the tree was the alternative and was
+declined — a readout whose job is showing small drifts cannot afford to be
+approximate about them. It is computed four times a second and only while the overlay is up, so a
 scene of a few hundred bodies pays for it about as often as it can be read; at a
 few thousand, leaving the overlay open is measurably slower than not.
 
@@ -428,7 +441,12 @@ are; the linter found exactly one thing on its first run across the whole
 codebase.
 
 There is no formatter, and adding one would rewrite every file in the project in
-a single commit. Layout is therefore by hand and by eye, and it is consistent
-enough to describe: two-space indent, code lines under 100 columns bar eight of
-them, and prose comments wrapped at 80 — measured across `src/` and `tests/`,
-where the median comment line is 71 characters and the longest is 87.
+a single commit — which for a repository whose history is part of what it is
+showing costs more than it saves. Roadmap M19 took that decision deliberately
+rather than by default.
+
+Layout is therefore by hand, with one exception: the column limit is enforced.
+`max-len` at 100 runs over `src`, `tests` and `tools` (ignoring strings in the
+last, since those files print markdown and a table row is as wide as the table).
+Everything else is convention — two-space indent, prose comments wrapped at 80,
+where the median comment line is 71 characters and the longest 87.

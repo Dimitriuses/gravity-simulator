@@ -39,7 +39,10 @@ const totals = (bodies: Particle[]) => ({
   mass: bodies.reduce((sum, body) => sum + body.mass, 0),
   momentum: bodies.reduce((sum, body) => sum.add(body.velocity.mult(body.mass)), ORIGIN),
   angular: bodies.reduce((sum, body) => sum + body.angularMomentumAbout(ORIGIN), 0),
-  kinetic: bodies.reduce((sum, body) => sum + 0.5 * body.mass * body.velocity.magnitudeSquared(), 0),
+  kinetic: bodies.reduce(
+    (sum, body) => sum + 0.5 * body.mass * body.velocity.magnitudeSquared(),
+    0
+  ),
 });
 
 describe('when a pair breaks', () => {

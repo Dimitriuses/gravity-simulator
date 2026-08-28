@@ -78,9 +78,8 @@ describe('states from the J2000 elements', () => {
       const days = (period * scale.secondsPerUnit) / DAY_IN_SECONDS;
 
       const error = Math.abs(days - body.siderealPeriodDays) / body.siderealPeriodDays;
-      expect(error, `${body.name}: ${days.toFixed(3)} d vs ${body.siderealPeriodDays}`).toBeLessThan(
-        0.001
-      );
+      const label = `${body.name}: ${days.toFixed(3)} d vs ${body.siderealPeriodDays}`;
+      expect(error, label).toBeLessThan(0.001);
     }
   });
 

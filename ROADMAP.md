@@ -888,34 +888,55 @@ checks the convergence ratio for every scheme in the registry, and the registry
 is a `Record<IntegratorName, …>`, so adding a scheme without adding its expected
 behaviour does not compile.
 
-## M19 — Small things worth doing eventually
+## M19 — Small things worth doing eventually — **done**
 
-*Small*, all three, and none of them urgent. Grouped because they are the same
-kind of work: something is known to be avoidable and is not being avoided.
+Three items, none urgent, and the interesting part is that two of them were
+declined *after* being tried. Each is now a decision with a measurement behind
+it rather than a note saying somebody should look one day.
 
-- **A link is as long as the scene is.** About 55 characters a body, so the
-  300-body galaxy is 16,000 characters — fine in an address bar, too long for
-  most chat clients, and the app says so above 2,000 rather than pretending. The
-  format is deliberately plain text so a mangled link can be diagnosed by
-  reading it, and that is worth keeping for small scenes; a compact encoding for
-  large ones would be a second format, with everything a second format implies.
-  Quantising the numbers is the cheaper half: bodies are placed by mouse, so
-  three significant figures carry every bit of precision anyone actually chose.
-- **The debug overlay costs a full pairwise pass.** `diagnostics()` sums the
-  potential over every pair, which is the cost Barnes-Hut exists to avoid. It is
-  computed only while the overlay is up and only four times a second, so it is
-  bounded — but the tree could answer it approximately for a readout whose last
-  digit nobody is reading, and at a few thousand bodies the difference would
-  show. The catch worth respecting: an *approximate* energy in a readout whose
-  purpose is measuring drift needs its approximation stated, or it will be
-  mistaken for the drift it is meant to reveal.
-- **There is no formatter.** Adding one rewrites every file in the project in a
-  single commit, which is why there is not one; the layout is consistent enough
-  to describe without it (two-space indent, code under 100 columns bar eight
-  lines, comments wrapped at 80). This is a decision to take deliberately or
-  not at all — the reason to take it is that it removes a class of review
-  comment forever, and the reason not to is that it makes every line in the
-  history someone else's.
+- **A link is as long as the scene is** — **declined, and the reason is now in
+  the code.** Quantising the numbers is the obvious economy: a body placed by
+  mouse has three meaningful figures at best, and the format carries six. Four
+  figures takes a 300-body scene from 12,476 characters to 9,147 — 27% — and
+  five takes it to 10,897.
+
+  Both break something this repository already pins. `tests/serialization.test.ts`
+  has a case called *"restores a preset to the same simulation, step for step"*,
+  and at five significant figures it misses its tolerance by a hair. That is the
+  useful half of the measurement: the margin is not spare, it is the property.
+  A saved scene that no longer runs like the scene that was saved is a worse
+  thing than a long URL.
+
+  The other economy does not pay either. Five float32s a body, base64-encoded,
+  is 8,400 characters against the present 12,476 — a third, for a second format
+  that cannot be diagnosed by reading it, and still far past what a chat client
+  accepts. Five numbers a body is a lot of data however it is spelled.
+
+- **The debug overlay costs a full pairwise pass** — **kept, and made to pay for
+  itself.** Measured: 0.90 ms at three hundred bodies, 6.5 ms at a thousand,
+  37.5 ms at two thousand. Four times a second, the first is nothing and the
+  last is 15% of the machine.
+
+  Answering it from the tree was the obvious fix and is the wrong one: an
+  *approximate* energy in a readout whose entire job is showing small drifts
+  would have to carry a caveat saying so, and a number with a caveat is worse
+  than a number that arrives more slowly. So the overlay is throttled by what it
+  costs instead of by a fixed interval — it refreshes four times a second when
+  it can afford to and less often when it cannot, never spending more than 5% of
+  wall-clock time on itself. Invisible on every scene the app ships; a
+  two-thousand-body scene stops stuttering.
+
+- **There is no formatter** — **decided against, and the convention is enforced
+  instead.** Adding one rewrites every file in a single commit and makes every
+  line in `git blame` somebody else's; for a repository where the history is
+  part of what is being shown, that is a real cost against a small benefit.
+
+  What the docs claimed about layout — two-space indent, code under 100 columns,
+  comments wrapped at 80 — was prose that nothing checked, which is a claim that
+  drifts. ESLint's `max-len` now enforces the column limit on `src`, `tests` and
+  `tools`, which took wrapping eleven lines that had crept past it. In `tools`
+  the rule ignores strings: those files print markdown, and a table row is one
+  string whose length is the width of the table rather than a matter of layout.
 
 ## M10 — Deliberately deferred
 

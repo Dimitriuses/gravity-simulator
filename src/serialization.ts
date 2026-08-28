@@ -89,8 +89,31 @@ export type DecodeResult = { scene: SavedScene } | { error: string };
  * Six is far more than the simulation's own accuracy justifies and still keeps
  * a body inside about 40 characters.
  */
+/**
+ * How much of each number a link carries.
+ *
+ * Six, and roadmap M19 tried to make it fewer. A link is as long as the scene
+ * is — about 55 characters a body, so a 300-body scene is 12,476 of them, fine
+ * in an address bar and too long for most chat clients — and quantising is the
+ * obvious economy: a body placed by mouse has three meaningful figures at best.
+ *
+ * It was measured and declined. Four figures saves 27% and five saves 13%, and
+ * *both* break the property `tests/serialization.test.ts` pins in "restores a
+ * preset to the same simulation, step for step": a restored scene stops
+ * evolving like the one that was saved. At five figures it misses that
+ * tolerance by a hair, which is the useful part of the measurement — the margin
+ * is not there to be spent.
+ *
+ * The other economy does not pay either. Five float32s a body, base64-encoded,
+ * comes to 8,400 characters against this format's 12,476 — a third off, for a
+ * second format that cannot be diagnosed by reading it, and still far past what
+ * a chat client will take. Five numbers a body is simply a lot of data, and the
+ * app already says so above 2,000 characters rather than pretending otherwise.
+ */
+const SIGNIFICANT_FIGURES = 6;
+
 function num(value: number): string {
-  return String(Number(value.toPrecision(6)));
+  return String(Number(value.toPrecision(SIGNIFICANT_FIGURES)));
 }
 
 const flag = (value: boolean) => (value ? '1' : '0');
