@@ -155,7 +155,16 @@ export function traceContours(
   view: ViewBounds,
   levelCount: number = 12,
   resolution: number = 90,
-  refineNear: ReadonlyArray<{ x: number; y: number }> = []
+  refineNear: ReadonlyArray<{ x: number; y: number }> = [],
+  /**
+   * The levels to trace, when the caller has already decided them.
+   *
+   * Given, they are traced whether or not this frame's field reaches them —
+   * which is the point of pinning a scale: the same curve is drawn from one
+   * frame to the next, and a level the scene has moved away from is simply
+   * absent rather than replaced by a different one.
+   */
+  fixedLevels?: number[]
 ): ContourLine[] {
   const lattice = Lattice.over(view, resolution, scalarAt);
   if (!lattice) return [];
@@ -163,7 +172,7 @@ export function traceContours(
   // Pass one: every other lattice point.
   lattice.sampleCoarse();
 
-  const levels = contourLevels(lattice.min, lattice.max, levelCount);
+  const levels = fixedLevels ?? contourLevels(lattice.min, lattice.max, levelCount);
   if (levels.length === 0) return [];
 
   const ascending = levels

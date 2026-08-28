@@ -785,41 +785,57 @@ the arc joining them — always, at every ring size — so the pieces overlapped
 widening the ring could never fix it. The slack has to go in the slot, not the
 radius.
 
-## M17 — Overlays that work at any scale
+## M17 — Overlays that work at any scale — **done**
 
-*Medium.* Two gaps with one cause: the field overlay's numbers were calibrated
-against the hand-built scenes, where masses run to thousands and forces to
-units, and they do not survive a scene in real units or a mode that draws a
-different quantity.
+Two gaps with one cause: the overlay's numbers were calibrated against the
+hand-built scenes, where masses run to thousands and forces to units, and they
+did not survive a scene in real units or a mode drawing a different quantity.
 
-- **The field cannot draw the solar system** — *medium*, and the more important
-  of the two, because it is a whole feature being unavailable rather than a
-  refinement missing. `VectorField` discards a sample whose force is below an
-  absolute `MIN_FORCE` of 0.001 while it is *deciding where to sample*, and in
-  the solar system preset the field at the Earth's distance is 6e-7. The preset
-  therefore ships with the overlay switched off (M14), which is honest and not a
-  fix.
+- ~~The field cannot draw the solar system.~~ **Done.** `VectorField` discarded
+  any sample whose force was below an absolute 0.001, and the field at the
+  Earth's distance from a Sun weighing 0.0126 units is 6e-7 — so every sample in
+  the scene fell through the threshold, the overlay drew nothing, and the preset
+  shipped with it switched off.
 
-  The threshold is absolute because it is applied before any range exists to
-  compare against — the sampler is choosing where to look, and the strongest
-  sample is not known until it has looked. The fix is therefore a first pass
-  that finds the range at coarse spacing and a second that samples against it,
-  which is the shape `contours.ts` already uses, or a floor derived from the
-  scene's own masses and extent rather than from a constant. M13's per-body
-  arrows are the precedent: the two constants that used to gate *those* are
-  gone, and the arrows are scaled against the frame's own range instead.
+  The threshold is now a **fraction of the strongest force in the frame**, a
+  thousandth, which is close to what the constant amounted to in the hand-built
+  scenes and means the same thing at any scale. The solar system preset produces
+  343 samples where it produced none, and ships with the overlay on.
 
-- **The scale lock does not reach the potential modes** — *small*. `Lock arrow
-  scale` (M13) pins a *force* range, so contours and the heightmap ignore it and
-  go on normalizing per frame; a force range applied to a potential would be a
-  number in the wrong units. What is missing is a second pinned range in those
-  modes' own units, and a legend that says which of the two it is showing —
-  which it already knows how to do.
+  The implementation detail that made it cheap: the sampler tracks the strongest
+  force *as it goes* and filters once at the end, rather than probing the view
+  first to find a scale. The refinement rules use the running peak, which starts
+  at zero and therefore prunes nothing until the pass knows what "weak" means
+  here — a stopping rule that pruned before it knew the scale would prune the
+  scale itself. No extra force evaluations at all.
 
-**What would say it is done**: the solar system preset with the field overlay on
-and arrows that mean something, and a smoke check that switches it on there and
-counts them — the mirror of the check that currently asserts the legend admits
-the overlay is off.
+  The renderer's own absolute floor went with it. It had a comment claiming the
+  threshold there *had* to be absolute because the field pass decides as it
+  draws; that was wrong — the pass computes the frame's range before it draws
+  anything, so everything reaching it is already filtered, and a second constant
+  could only disagree with the first.
+
+- ~~The scale lock does not reach the potential modes.~~ **Done**, and it needed
+  more than colouring. `Lock scale` now pins a *potential* range alongside the
+  force one, kept separately because they are different quantities in different
+  units — switching between an arrow mode and a contour keeps both locks rather
+  than overwriting one with the other, and the legend reports whichever applies
+  to the mode on screen.
+
+  For the heightmap a pinned range is the whole fix: the shading stops
+  re-normalizing and values outside the range clamp instead. For contours it is
+  not, because the *levels* are chosen from the frame's range — so pinning only
+  the colours would leave a different curve drawn every frame, coloured
+  consistently. `traceContours` therefore takes the levels when the caller has
+  already decided them, and `main` hands the field the locked range before it
+  traces: the renderer measured it, the field chooses levels from it. A level
+  the scene has moved away from is then simply absent, rather than quietly
+  replaced by a different value.
+
+  One bug found on the way: the lock request used to be cleared by whichever
+  pass filled in the last part of it, and the test for "last" assumed an arrow
+  mode. A lock set while a contour was on screen was never satisfied at all. It
+  is cleared at the end of the frame now, where the question does not arise.
 
 ## M18 — A scheme that is symplectic *and* accurate in phase
 

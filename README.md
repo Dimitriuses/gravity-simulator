@@ -75,8 +75,10 @@ inferred from how things move.
 - **A scale you can pin.** Arrow length and hue are normalized against the range
   present in the current frame, which is what keeps them legible across the ~10⁶
   span the sliders produce — and what stops two frames being comparable. *Lock
-  arrow scale* fixes the range where it stands, and the legend says when it is
-  fixed.
+  scale* fixes the range where it stands, in whichever units the current mode
+  works in, and the legend says when it is fixed. The overlay's thresholds are
+  relative too, so it draws a scene whose forces are 2e-14 as readily as one
+  whose forces are 2.
 - **Trails**, adjustable mass, field range, body scale and arrow scale, and a
   pause that keeps the force arrows live so you can inspect a frozen
   configuration.
@@ -117,9 +119,10 @@ bodies start from the planets' published orbital elements at J2000, a hundred
 units to the astronomical unit. The Earth goes round in about ten seconds and
 comes back within 0.1% of a real year; Mercury takes three. Distances are exact
 and sizes are not — the Sun is 109 Earths wide and the Earth's orbit is 23,000
-Suns around, so nothing below a few pixels is drawn any smaller than that.
-[`EPHEMERIS.md`](EPHEMERIS.md) is the same starting data taken seriously, over a
-thousand years.
+Suns around, so nothing below a few pixels is drawn any smaller than that. The
+field overlay draws it, which needed the thresholds to stop being absolute: the
+force on the Earth here is 2e-14. [`EPHEMERIS.md`](EPHEMERIS.md) is the same
+starting data taken seriously, over a thousand years.
 
 ## Controls
 
@@ -131,7 +134,7 @@ thousand years.
 | **Scroll wheel** | Zoom about the cursor, 10%–500% |
 | **Shift + left-click** a body | Follow it: the camera keeps it centred as it moves. Shift-click empty space, or press **Esc**, to let go |
 | **D** | Show or hide the debug readout |
-| **Lock arrow scale** | Pin arrow length and hue to the range on screen, so frames can be compared |
+| **Lock scale** | Pin the overlay's range to what is on screen, so two frames can be compared — arrow length and hue in the arrow modes, and the levels themselves in the contour and heightmap ones |
 | **Reset Camera** | Back to origin at 100% |
 | **✕** next to a body in the list | Delete that body |
 | **Clear All** / **Pause** | Empty the scene / freeze it |
@@ -260,7 +263,7 @@ before trusting a change.
 ```bash
 npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 298 unit tests, headless, ~20s
+npm test            # 304 unit tests, headless, ~20s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -292,7 +295,7 @@ measurement is run through RK4 rather than the default integrator.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 108 properties, including that the background is the intended navy, that
+asserts 112 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -363,11 +366,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active. Sixteen milestones are closed, including one that was measured and
+Active. Seventeen milestones are closed, including one that was measured and
 declined rather than built, and [`ROADMAP.md`](ROADMAP.md) keeps all of them as
-a record of what was tried as well as what worked. Three are open, in priority
-order: overlays that work at the solar system's scale as well as the hand-built
-scenes', an integration scheme that is symplectic *and* accurate in phase — so
+a record of what was tried as well as what worked. Two are open, in priority
+order: an integration scheme that is symplectic *and* accurate in phase — so
 that "watch with one, measure with another" stops being necessary — and a group
 of small things. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
 limitation as resolved, accepted or open, and says which milestone owns the open

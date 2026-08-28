@@ -168,3 +168,36 @@ describe('on a real gravitational potential', () => {
     }
   });
 });
+
+describe('levels the caller has already chosen', () => {
+  /**
+   * What a locked scale means for a mode that draws level sets: the same values
+   * are traced every frame, so two frames show the same curves moving rather
+   * than different curves. Roadmap M17.
+   */
+  const bounds = { minX: -100, minY: -100, maxX: 100, maxY: 100 };
+  const well = (x: number, y: number) => -400 / Math.max(Math.hypot(x, y), 5);
+
+  it('traces exactly the levels it is given', () => {
+    const asked = [-40, -20, -10];
+    const lines = traceContours(well, bounds, 12, 60, [], asked);
+
+    expect(lines.map((line) => line.level)).toEqual(asked);
+  });
+
+  it('leaves out a level the field has moved away from, rather than replacing it', () => {
+    // -400 is deeper than this field goes outside the softening radius, so it
+    // traces nothing — and nothing is the honest answer. A frame-chosen level
+    // would have quietly substituted a different value.
+    const lines = traceContours(well, bounds, 12, 60, [], [-400, -20]);
+
+    expect(lines.map((line) => line.level)).toEqual([-20]);
+  });
+
+  it('chooses its own when it is not given any, as before', () => {
+    const lines = traceContours(well, bounds, 5, 60);
+
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.length).toBeLessThanOrEqual(5);
+  });
+});

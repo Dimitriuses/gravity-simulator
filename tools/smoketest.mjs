@@ -1408,11 +1408,33 @@ try {
       `${early} lit pixels, then ${later} four seconds later`
     );
 
-    const legend = await page.textContent('#legendScale');
+    // The overlay is on in this scene, which it could not be before M17: the
+    // sampler discarded anything below an absolute 0.001 and the field at the
+    // Earth's distance is 6e-7, so the whole scene fell through the threshold.
+    const arrows = await onCanvas((data, width, height) => {
+      // Field arrows are drawn in HSB and span blue to red; counting anything
+      // strongly coloured that is neither the pale blue of a body nor the
+      // orange of a per-body arrow is enough to say the overlay is there.
+      let n = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
+        if (b > 90 && b > r + 40 && b > g + 40) n++;
+      }
+      void width;
+      void height;
+      return n;
+    });
     check(
-      'and the legend does not report a field it is not drawing',
-      /overlay off/.test(legend ?? ''),
-      `legend reads "${legend}"`
+      'the field overlay draws a scene whose forces are 2e-14',
+      arrows > 200,
+      `${arrows} field-coloured pixels`
+    );
+
+    const legend = await page.textContent('#legendMax');
+    check(
+      'and the legend reports the range it actually found',
+      /e-\d/.test(legend ?? ''),
+      `legend maximum reads "${legend}"`
     );
   }
 
@@ -1492,6 +1514,51 @@ try {
     await page.waitForTimeout(300);
     const cleared = await page.textContent('#followReadout');
     check('and stops reporting once the camera lets go', cleared === '', `readout "${cleared}"`);
+
+    // The same lock in a mode that draws *potential*, which it did not reach
+    // before M17: contours and the heightmap normalize against their own range
+    // and a pinned force range would be a number in the wrong units.
+    await page.selectOption('#presetSelect', 'lagrange');
+    await page.click('#reloadPresetBtn');
+    await page.selectOption('#fieldModeSelect', 'contours');
+    await page.waitForTimeout(1200);
+
+    const potentialBefore = await page.textContent('#legendMax');
+    await page.check('#lockScale');
+    await page.waitForTimeout(500);
+
+    const potentialLabel = await page.textContent('#legendScale');
+    check(
+      'the legend says a potential mode is locked, in its own units',
+      /potential/.test(potentialLabel ?? '') && /locked/.test(potentialLabel ?? ''),
+      `legend reads "${potentialLabel}"`
+    );
+
+    // A body heavier than anything in the scene, dropped into it.
+    await page.locator('#massSlider').fill('5000');
+    await page.mouse.click(900, 250);
+    await page.waitForTimeout(1800);
+
+    const potentialLocked = await page.textContent('#legendMax');
+    check(
+      'and the contour levels stay where they were pinned',
+      potentialLocked === potentialBefore,
+      `${potentialLocked} against ${potentialBefore} before the scene changed`
+    );
+
+    await page.uncheck('#lockScale');
+    await page.waitForTimeout(700);
+    const potentialFree = await page.textContent('#legendMax');
+    check(
+      'and follow the scene again once released',
+      potentialFree !== potentialLocked,
+      `${potentialFree} against ${potentialLocked} while locked`
+    );
+
+    await page.locator('#massSlider').fill('200');
+    await page.selectOption('#fieldModeSelect', 'gradient');
+    await page.waitForTimeout(400);
+
 
     await page.locator('#massSlider').fill('200');
   }

@@ -58,7 +58,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 298 tests run under Node in about twenty
+plain TypeScript, which is why 304 tests run under Node in about twenty
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -416,7 +416,24 @@ Reads and writes are both wrapped in try/catch and fail silently. Storage can be
 full, or disabled outright in a private window, and neither is a reason to
 interrupt a running simulation.
 
-### A locked scale is captured mid-frame, and only covers the arrows
+### Nothing in the overlay compares against an absolute magnitude
+
+Every threshold that decides whether a sample or an arrow is worth drawing is a
+*fraction* of what else is on screen. `FIELD_NOISE_FRACTION` in `VectorField` is
+a thousandth of the strongest force in the frame; the per-body arrows and the
+field's own draw pass have no threshold at all beyond "greater than zero".
+
+They were all absolute once, tuned for scenes with masses in the hundreds, and
+the solar-system preset is what proved it wrong: the force on the Earth is 2e-14
+there, so *every* arrow in the scene fell below every one of those constants and
+the overlay drew nothing.
+
+The sampler tracks its peak **as the pass runs** rather than probing first, and
+filters once at the end. That is why the refinement rules can use a floor that
+starts at zero and rises: a stopping rule that pruned before it knew the scale
+would prune the scale itself.
+
+### A locked scale is captured mid-frame, and covers whatever was drawn
 
 `Renderer.lockScale()` does not pin anything on the spot: the magnitude ranges
 exist only part-way through a draw pass, so the request sets a flag and the next
@@ -424,10 +441,22 @@ pass that computes a range fills it in. Either pass may be the one — the field
 can be hidden, or the per-body arrows can be — so `captureLock` merges into
 whatever is already there and clears the flag once both halves are present.
 
-The lock is force-shaped. Contours and the heightmap draw *potential*, so they
-ignore it and go on publishing their own range; the legend has to say which of
-the two the numbers belong to, because a locked scale and an unlocked one look
-identical until the scene moves under them.
+The lock holds a force range **and** a potential range, separately, because they
+are different quantities in different units — a force range applied to a contour
+would be a meaningless number. Switching modes keeps both; the legend reports
+whichever belongs to the mode on screen, because a locked scale and an unlocked
+one look identical until the scene moves under them.
+
+For contours the *levels* are pinned, not only the colours: a level chosen from
+each frame's range is a different curve every frame. That is why `main` pushes
+the locked range into `VectorField` before it traces — the renderer measured the
+range, and the field is what chooses levels from it.
+
+The request is cleared at the **end** of the frame, not by whichever pass fills
+in the last part of it. Which passes run depends on the field mode and two
+checkboxes, so no pass can know it is the last; an earlier version assumed an
+arrow mode was always involved, and a lock set while a contour was on screen was
+never satisfied at all.
 
 ### The panel's second column is measured, not media-queried
 

@@ -254,7 +254,13 @@ const sketch = (p: p5) => {
     // paused frame — and the galaxy is precisely the scene that ships with the
     // overlay switched off because it cannot afford it. It was being paid for
     // and thrown away.
-    if (renderer.showVectorField) engine.updateField(view);
+    if (renderer.showVectorField) {
+      // The renderer measured the range and the field chooses the levels, so
+      // the lock has to cross between them. Only the potential half: the arrow
+      // modes are normalized at draw time, where the lock already lives.
+      engine.vectorField.lockedPotential = renderer.scaleLock?.potential ?? null;
+      engine.updateField(view);
+    }
 
     updateSubStepDisplay();
     updateLegend();
@@ -690,8 +696,12 @@ const sketch = (p: p5) => {
     lockScaleCheckbox.addEventListener('change', () => {
       // Captured on the next frame that draws arrows, which is the only moment
       // the ranges exist. Unlocking is immediate.
-      if (lockScaleCheckbox.checked) renderer.lockScale();
-      else renderer.unlockScale();
+      if (lockScaleCheckbox.checked) {
+        renderer.lockScale();
+      } else {
+        renderer.unlockScale();
+        engine.vectorField.lockedPotential = null;
+      }
     });
 
     showVectorsCheckbox.addEventListener('change', () => {
@@ -1283,17 +1293,17 @@ const sketch = (p: p5) => {
     setLegendText(legendMax, format(scale.max));
     setLegendText(legendMin, format(scale.min));
 
-    // The lock pins force magnitudes, so it says nothing about a mode drawing
-    // potential — those keep reporting their own range, and the legend has to
-    // say which of the two the numbers above belong to.
-    const locked = renderer.scaleLock !== null && !showsPotential;
+    // Each mode has its own lock to report: an arrow mode is pinned when the
+    // force range is, a contour or a heightmap when the potential range is.
+    // Saying "locked" on the strength of the other one would be a lie in the
+    // wrong units.
+    const lock = renderer.scaleLock;
+    const locked = showsPotential ? !!lock?.potential : !!lock?.field;
     setLegendText(
       legendScale,
-      showsPotential
-        ? 'log scale, potential per unit mass'
-        : locked
-          ? 'log scale, force per unit mass — locked'
-          : 'log scale, force per unit mass'
+      `log scale, ${showsPotential ? 'potential' : 'force'} per unit mass${
+        locked ? ' — locked' : ''
+      }`
     );
   }
 

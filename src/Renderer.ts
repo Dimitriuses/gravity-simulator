@@ -17,14 +17,15 @@ const PARTICLE_ARROW_MIN_LENGTH = 18;
 const PARTICLE_ARROW_MAX_LENGTH = 60;
 
 /**
- * Below this, a *field* arrow says nothing worth the clutter.
+ * Nothing here needs a magnitude threshold any more.
  *
- * Absolute, and it can only be absolute: the field pass decides whether to draw
- * each sample as it goes, and the range it would compare against is the thing
- * being computed. See `drawParticleVectors` for the per-body arrows, which do
- * know their range and therefore need no such number.
+ * The field pass used to drop samples below an absolute 1e-6 as it drew them,
+ * which is the same mistake `VectorField` made one layer down and which roadmap
+ * M17 removed from both: the sampler now filters against a fraction of the
+ * strongest force in the frame, so everything that reaches the renderer is
+ * already worth drawing, and a second absolute constant on top of it could only
+ * disagree. The per-body arrows lost theirs in M14 for the same reason.
  */
-const MIN_DRAWN_FORCE = 1e-6;
 
 /** Colours, RGB. These match the on-page legend in index.html. */
 const COLOR_BACKGROUND = [10, 15, 30] as const;
@@ -146,6 +147,15 @@ const COLOR_VELOCITY_PREVIEW = [255, 200, 0] as const;
 export interface LockedScales {
   /** The field's own range, when the mode drawing it had one. */
   field: { min: number; max: number } | null;
+  /**
+   * The range of *potentials*, when a mode that draws them was up.
+   *
+   * Separate from `field` because it is a different quantity in different
+   * units: a force range pinned in an arrow mode would be a meaningless number
+   * to a contour. Kept alongside rather than instead, so that switching between
+   * an arrow mode and a potential mode does not throw away either lock.
+   */
+  potential: { min: number; max: number } | null;
   /** Net force across the bodies, and their speeds. */
   force: { min: number; max: number };
   speed: { min: number; max: number };
@@ -230,6 +240,17 @@ export class Renderer {
    */
   private lockRequested = false;
 
+  /**
+   * Whether a lock was requested when this frame started.
+   *
+   * The request is cleared at the *end* of `draw()`, not by whichever pass
+   * happens to fill in a part of it: which passes run depends on the field mode
+   * and on two checkboxes, so no single pass can know whether it is the last
+   * one. An earlier version cleared the flag when the field and the per-body
+   * ranges were both present, and a lock set while a contour was on screen was
+   * therefore never satisfied at all.
+   */
+
   /** Reused between frames; see `drawHeightmap`. */
   private heightmapImage: p5.Image | null = null;
 
@@ -257,6 +278,10 @@ export class Renderer {
     if (this.showParticleVectors) {
       this.drawParticleVectors();
     }
+
+    // Everything that was going to draw has drawn, so whatever it captured is
+    // the whole of what there was to capture.
+    this.lockRequested = false;
   }
 
   /**
@@ -301,7 +326,16 @@ export class Renderer {
     // Levels come back deepest-first; the ends of that range are what the
     // legend reports.
     const levels = lines.map((line) => Math.abs(line.level));
-    this.fieldScale = { min: Math.min(...levels), max: Math.max(...levels) };
+    const drawn = { min: Math.min(...levels), max: Math.max(...levels) };
+
+    if (this.lockRequested) this.captureLock({ potential: drawn });
+
+    // The locked range if there is one. The *levels* are pinned as well as the
+    // colours, which is the half that matters: a contour whose value is chosen
+    // from each frame's range is a different curve every frame, and colouring
+    // it consistently would not make two frames comparable. `VectorField` is
+    // told the range before it traces — see `main`.
+    this.fieldScale = this.scaleLock?.potential ?? drawn;
 
     this.p.push();
     this.p.colorMode(this.p.HSB, 360, 100, 100, 100);
@@ -393,12 +427,22 @@ export class Renderer {
     const view = this.engine.vectorField.lastView;
     if (!view) return;
 
-    const deepest = Math.abs(grid.min);
-    const shallowest = Math.max(Math.abs(grid.max), deepest * 1e-4);
-    this.fieldScale = { min: shallowest, max: deepest };
+    const seen = {
+      min: Math.max(Math.abs(grid.max), Math.abs(grid.min) * 1e-4),
+      max: Math.abs(grid.min),
+    };
 
-    const logMin = Math.log(shallowest);
-    const logMax = Math.log(deepest);
+    if (this.lockRequested) this.captureLock({ potential: seen });
+
+    // Values outside a locked range are clamped rather than dropped, which is
+    // what makes the shading comparable between frames: a well that deepens
+    // past the lock saturates instead of rescaling everything around it.
+    const range = this.scaleLock?.potential ?? seen;
+    this.fieldScale = range;
+
+    const shallowest = range.min;
+    const logMin = Math.log(range.min);
+    const logMax = Math.log(range.max);
     const columns = grid.columns + 1;
     const rows = grid.rows + 1;
 
@@ -481,14 +525,14 @@ export class Renderer {
     let minMagnitude = Infinity;
     for (const sample of samples) {
       const mag = sample.force.magnitude();
-      if (mag > MIN_DRAWN_FORCE) {
+      if (mag > 0) {
         if (mag > maxMagnitude) maxMagnitude = mag;
         if (mag < minMagnitude) minMagnitude = mag;
       }
     }
     if (minMagnitude === Infinity) return;
 
-    if (this.lockRequested) this.captureLock({ min: minMagnitude, max: maxMagnitude });
+    if (this.lockRequested) this.captureLock({ field: { min: minMagnitude, max: maxMagnitude } });
 
     // The locked range if there is one, and this frame's otherwise. The legend
     // reads `fieldScale`, so it prints whichever is actually in use rather than
@@ -520,7 +564,7 @@ export class Renderer {
     maxMagnitude: number
   ): void {
     const magnitude = vector.magnitude();
-    if (magnitude <= MIN_DRAWN_FORCE) return;
+    if (magnitude <= 0) return;
 
     const t = logNormalize(magnitude, minMagnitude, maxMagnitude);
 
@@ -608,7 +652,7 @@ export class Renderer {
 
     // A lock asked for while the field is hidden is captured here instead, so
     // the per-body arrows can be pinned on their own.
-    if (this.lockRequested) this.captureLock(null, frameForce, frameSpeed);
+    if (this.lockRequested) this.captureLock({ force: frameForce, speed: frameSpeed });
 
     const forceRange = this.scaleLock?.force ?? frameForce;
     const speedRange = this.scaleLock?.speed ?? frameSpeed;
@@ -860,24 +904,15 @@ export class Renderer {
    * either may be switched off, so neither can assume it is the one that will
    * be asked.
    */
-  private captureLock(
-    field: { min: number; max: number } | null,
-    force?: { min: number; max: number },
-    speed?: { min: number; max: number }
-  ): void {
+  private captureLock(part: Partial<LockedScales>): void {
     const existing = this.scaleLock;
 
     this.scaleLock = {
-      field: field ?? existing?.field ?? null,
-      force: force ?? existing?.force ?? { min: 0, max: 0 },
-      speed: speed ?? existing?.speed ?? { min: 0, max: 0 },
+      field: part.field ?? existing?.field ?? null,
+      potential: part.potential ?? existing?.potential ?? null,
+      force: part.force ?? existing?.force ?? { min: 0, max: 0 },
+      speed: part.speed ?? existing?.speed ?? { min: 0, max: 0 },
     };
-
-    // Held until every pass that is going to draw this frame has contributed,
-    // which for a scene with both overlays on means the second of the two.
-    if (this.scaleLock.field !== null && this.scaleLock.force.max > 0) {
-      this.lockRequested = false;
-    }
   }
 
   /**

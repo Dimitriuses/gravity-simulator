@@ -17,13 +17,13 @@ Every entry is one of three things, and the index says which:
 | 1 | Tight orbits are the least accurate | **Resolved** (M1); the floor at ~25 steps an orbit is **accepted** |
 | 2 | Which scheme bounds its error, and which does not | **Accepted** — and **open** in one respect: no scheme here is both symplectic and accurate in phase, which is **M18** |
 | 3 | Contacts are resolved, but crudely | **Resolved** (M2, M6, M12, M16); no tidal torque is **accepted**, in M10 |
-| 4 | Arrow length is relative | **Resolved** (M5, M13); the lock not reaching the potential modes is **open**, M17 |
+| 4 | Arrow length is relative | **Resolved** (M5, M13, M17) |
 | 5 | Saving happens on its own; restoring does not | **Resolved** (M4, M11); the length of a link for a large scene is **open**, M19 |
 | 6 | Performance ceiling | **Measured** (M3, M7, M15) — the field's sample budget is **accepted**, per-body stepping **declined with numbers** |
 | 7 | The default integrator turns orbits that should not turn | **Accepted** as a property, and the reason **M18** exists |
 | 8 | The solar system model is flat, and Newtonian | **Accepted** (M10); the windows that do not settle are **accepted** (M14) |
 | 9 | The debug overlay costs a full pairwise pass | **Open**, small — M19 |
-| 10 | The solar system scene is to scale in distance, not size or time | **Accepted**; the field overlay being unable to draw it is **open**, M17 |
+| 10 | The solar system scene is to scale in distance, not size or time | **Accepted** — and the field overlay draws it since M17 |
 | 11 | Barnes-Hut gives up exact momentum conservation | **Accepted** (M10) |
 | 12 | Zooming out far in uniform mode coarsens the grid | **Accepted** |
 | 13 | Desktop only | **Accepted** (M10) |
@@ -179,11 +179,12 @@ force per unit mass — and updates them every frame (roadmap M5). What remains:
   scale on a collapsing scene saturates to red and on an escaping one fades to
   nothing — the relative version is what keeps the picture legible while the
   scene is changing, and the lock is what makes two moments comparable.
-- **The lock does not reach the potential modes** — *open, roadmap M17*.
-  Contours and the heightmap draw potential rather than force, so a range pinned
-  in an arrow mode would be a number in the wrong units; they keep normalizing
-  per frame and the legend keeps reporting their own range. What is missing is a
-  second lock in the units those modes work in, not a change to the first one.
+- **The lock covers the potential modes too**, since roadmap M17, and as a
+  *second* pinned range rather than a change to the first: a force range applied
+  to a contour would be a number in the wrong units. Switching between an arrow
+  mode and a potential one keeps both. For contours the levels are pinned as
+  well as the colours, so the same curves are drawn from frame to frame — a
+  level the scene has moved away from goes missing rather than being replaced.
   Distance, meanwhile, has an absolute scale in every mode: the ruler along the
   bottom of the canvas.
 
@@ -221,7 +222,9 @@ the same browser: **30 fps with the tree, 12 fps forced onto the exact sum**.
 What limits it now, in order:
 
 - **The field is sample-bound.** It samples up to 12,000 points regardless of
-  the body count, so it costs tens of milliseconds even in a small scene shown
+  the body count — filtered against a thousandth of the strongest force present
+  rather than an absolute floor, so the count does not depend on the scene's
+  scale — and so it costs tens of milliseconds even in a small scene shown
   at full range — and hundreds in a wide view of a large one. The Galaxy preset
   turns it off for that reason; the cap was chosen when the field was the only
   thing on screen. It is not sampled at all while the overlay is hidden, which
@@ -327,10 +330,12 @@ than hidden:
   `timeStep` to 110 — about twelve hours a frame, an Earth year in ten seconds.
   That is a display choice rather than a change to the physics, and the adaptive
   rule still subdivides it when a close pair needs it.
-- **The field overlay does not work here** — *open, roadmap M17*. `VectorField`
-  drops samples whose force is below an absolute 0.001, and the field at the
-  Earth's distance from a Sun weighing 0.0126 units is 6e-7 — so the overlay
-  would be empty, and the scene ships with it off. The threshold is absolute because the sampler applies
+- **The field overlay works here since roadmap M17.** It did not before: the
+  sampler discarded anything below an absolute 0.001, and the field at the
+  Earth's distance from a Sun weighing 0.0126 units is 6e-7, so the whole scene
+  fell through the threshold and the preset shipped with the overlay off. The
+  floor is now a thousandth of the strongest force in the frame, which means the
+  same thing at any scale. The threshold is absolute because the sampler applies
   it while deciding where to sample, before it knows the range. The per-body
   force and velocity arrows *do* work: they are scaled against the range present
   in the frame, so they needed no such number once the constants that used to

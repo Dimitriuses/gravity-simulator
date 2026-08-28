@@ -440,13 +440,12 @@ export const PRESETS: Preset[] = [
     // One Earth orbit's worth, so the inner planets draw closed curves and the
     // giants draw the arcs they have had time for.
     trailLength: 800,
-    // The field overlay cannot draw this scene: `VectorField` drops samples
-    // below an absolute 0.001, and the field at the Earth's distance from a
-    // Sun weighing 0.0126 units is 6e-7. It is switched off rather than left on
-    // and empty. The per-body arrows do work — they are scaled against the
-    // range in the frame rather than against a constant — and are worth having
-    // here, since the whole scene is one body pulling on eight.
-    showVectorField: false,
+    // The overlay stays on, which it could not before roadmap M17: the field
+    // sampler used to discard anything below an absolute 0.001, and the field
+    // at the Earth's distance from a Sun weighing 0.0126 units is 6e-7, so the
+    // whole scene fell through it and the overlay drew nothing. It now filters
+    // against a fraction of the strongest force on screen, which means the same
+    // thing here as it does in a scene with masses in the hundreds.
     bodies: balanced(solarSystemBodies()),
   },
   {

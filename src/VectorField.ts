@@ -1,7 +1,7 @@
 import { Vector2D } from './Vector2D';
 import { Particle } from './Particle';
 import { DEFAULT_THETA, QuadTree } from './quadtree';
-import { ContourLine, ScalarGrid, sampleScalarGrid, traceContours } from './contours';
+import { ContourLine, ScalarGrid, contourLevels, sampleScalarGrid, traceContours } from './contours';
 import { Streamline, defaultStreamlineOptions, traceStreamlines } from './streamlines';
 import { gravitationalPotential } from './forces';
 
@@ -36,8 +36,23 @@ function nearCell(
   return dx * dx + dy * dy <= range * range;
 }
 
-/** Forces below this are not worth an arrow. */
-const MIN_FORCE = 0.001;
+/**
+ * How weak a sample has to be, against the strongest one in the frame, before
+ * it is not worth an arrow.
+ *
+ * A *fraction* rather than a number, and that is the whole of roadmap M17. This
+ * used to be an absolute 0.001, which is a sensible floor in the scenes this
+ * simulation was built around — masses in the hundreds, forces of order one —
+ * and meaningless in a scene that is not. The solar system preset is in real
+ * units, where the field at the Earth's distance is 6e-7: every sample in it
+ * fell below the threshold, the overlay drew nothing at all, and the scene
+ * shipped with it switched off.
+ *
+ * A thousandth of the strongest force on screen is close to what the old
+ * constant amounted to in the hand-built scenes, so their pictures barely
+ * change, and it means the same thing at any scale.
+ */
+const FIELD_NOISE_FRACTION = 1e-3;
 
 /**
  * How much a cell has to disagree with its parent before it is worth splitting.
@@ -225,6 +240,8 @@ export class VectorField {
 
     if (particles.length === 0) return;
 
+    this.peakForce = 0;
+
     switch (this.fieldMode) {
       case 'uniform':
         this.generateUniformGrid(particles, G, view);
@@ -245,7 +262,12 @@ export class VectorField {
           // straddle a level, and a body small enough to sit inside one coarse
           // cell without bending it past a level is invisible to that test —
           // the same blindness the gradient arrow mode had to be told about.
-          particles.map((particle) => particle.position)
+          particles.map((particle) => particle.position),
+          // The lock holds absolute depths; the tracer wants the signed range
+          // the potential actually runs over, which is negative.
+          this.lockedPotential
+            ? contourLevels(-this.lockedPotential.max, -this.lockedPotential.min, 12)
+            : undefined
         );
         break;
       case 'heightmap':
@@ -268,6 +290,10 @@ export class VectorField {
         );
         break;
     }
+
+    // The arrow modes filter as they go, against a floor that was still rising
+    // while they did it. This is the same judgement made once, at the end.
+    this.dropNegligibleSamples();
   }
 
   /**
@@ -330,7 +356,8 @@ export class VectorField {
       const force = this.calculateForceAt(centre, particles, G);
       const magnitude = force.magnitude();
 
-      if (magnitude <= MIN_FORCE && cell.occupants.length === 0) continue;
+      if (magnitude > this.peakForce) this.peakForce = magnitude;
+      if (magnitude <= this.noiseFloor() && cell.occupants.length === 0) continue;
 
       // How much this cell disagrees with the one it came from. The first
       // level has nothing to compare against and always splits, which is what
@@ -379,8 +406,32 @@ export class VectorField {
         continue;
       }
 
-      if (magnitude > MIN_FORCE) this.samples.push({ position: centre, force });
+      if (magnitude > this.noiseFloor()) this.samples.push({ position: centre, force });
     }
+  }
+
+  /**
+   * The weakest force worth an arrow, as things stand this frame.
+   *
+   * Zero until the first sample is taken, which is deliberate: a stopping rule
+   * that prunes before it knows the scale would prune the scale itself.
+   */
+  private noiseFloor(): number {
+    return this.peakForce * FIELD_NOISE_FRACTION;
+  }
+
+  /**
+   * Drop the samples the finished pass says are negligible.
+   *
+   * The rules above run against a floor that was still rising, so the earliest
+   * samples were judged against a smaller number than the last ones. One pass
+   * at the end judges them all against the same one.
+   */
+  private dropNegligibleSamples(): void {
+    const floor = this.noiseFloor();
+    if (floor <= 0) return;
+
+    this.samples = this.samples.filter((sample) => sample.force.magnitude() > floor);
   }
 
   /** Potential at a point, through the tree when there is one. */
@@ -416,8 +467,10 @@ export class VectorField {
       for (let y = startY; y <= view.maxY; y += gridSize) {
         const samplePoint = new Vector2D(x, y);
         const force = this.calculateForceAt(samplePoint, particles, G);
+        const magnitude = force.magnitude();
 
-        if (force.magnitude() > MIN_FORCE) {
+        if (magnitude > this.peakForce) this.peakForce = magnitude;
+        if (magnitude > this.noiseFloor()) {
           this.samples.push({ position: samplePoint, force });
         }
       }
@@ -505,8 +558,10 @@ export class VectorField {
 
         const samplePoint = new Vector2D(x, y);
         const force = this.calculateForceAt(samplePoint, allParticles, G);
+        const magnitude = force.magnitude();
 
-        if (force.magnitude() > MIN_FORCE) {
+        if (magnitude > this.peakForce) this.peakForce = magnitude;
+        if (magnitude > this.noiseFloor()) {
           this.samples.push({ position: samplePoint, force });
           this.occupancy.add(samplePoint);
         }
@@ -551,6 +606,29 @@ export class VectorField {
   getSamples(): VectorSample[] {
     return this.samples;
   }
+
+  /**
+   * The strongest force sampled so far this frame, and the floor derived from
+   * it.
+   *
+   * Tracked as the pass runs rather than measured beforehand, so it costs no
+   * extra force evaluations: the sampling rules that use it are stopping rules,
+   * and a floor that starts at zero simply prunes nothing until the pass has
+   * seen enough to know what "weak" means here. The samples are filtered once
+   * at the end, when the answer is final.
+   */
+  private peakForce = 0;
+
+  /**
+   * A pinned range of potentials, when the viewer has locked the scale.
+   *
+   * Set by `main` from the renderer's lock, because the renderer is where the
+   * range was measured and the field is where the levels are chosen. Contours
+   * traced against a fixed set of levels are the same curves frame to frame,
+   * which is what a locked scale means for a mode that draws level sets rather
+   * than arrows.
+   */
+  lockedPotential: { min: number; max: number } | null = null;
 
   /** Equipotential lines, when the mode draws them. */
   getContours(): ContourLine[] {

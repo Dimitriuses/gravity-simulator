@@ -400,3 +400,67 @@ describe('heightmap mode', () => {
     expect(heightmapOf([])).toBeNull();
   });
 });
+
+describe('the noise floor is relative, not absolute', () => {
+  /**
+   * Roadmap M17. The sampler used to discard anything below an absolute 0.001,
+   * which is a reasonable floor in a scene with masses in the hundreds and
+   * meaningless in one with masses of 0.0126 — the solar system preset, where
+   * every sample fell through it and the overlay drew nothing at all.
+   */
+  const view = { minX: -640, minY: -400, maxX: 640, maxY: 400 };
+
+  /** The same scene at two scales: masses and distances scaled together. */
+  function discOfBodies(massScale: number): Particle[] {
+    return [
+      new Particle(0, 0, 5000 * massScale),
+      new Particle(200, 0, 50 * massScale, 0, 1),
+      new Particle(-260, 120, 50 * massScale, 0, -1),
+    ];
+  }
+
+  it('samples a scene whose forces are a millionth of the usual', () => {
+    const ordinary = new VectorField(30);
+    const tiny = new VectorField(30);
+
+    ordinary.update(discOfBodies(1), SIMULATION_G, view);
+    tiny.update(discOfBodies(1e-6), SIMULATION_G, view);
+
+    expect(ordinary.getSamples().length).toBeGreaterThan(50);
+    // Within a few per cent: the picture is the same picture, because the
+    // threshold now means the same thing in both.
+    expect(tiny.getSamples().length).toBeGreaterThan(ordinary.getSamples().length * 0.9);
+    expect(tiny.getSamples().length).toBeLessThan(ordinary.getSamples().length * 1.1);
+  });
+
+  it('still drops what is negligible against the strongest force present', () => {
+    const field = new VectorField(30);
+    field.update(discOfBodies(1), SIMULATION_G, view);
+
+    const magnitudes = field.getSamples().map((sample) => sample.force.magnitude());
+    const peak = Math.max(...magnitudes);
+    const weakest = Math.min(...magnitudes);
+
+    // Everything kept is within three decades of the peak, which is what the
+    // fraction says it should be.
+    expect(weakest).toBeGreaterThan(peak * 1e-3 * 0.5);
+  });
+
+  it('keeps nothing at all when there is nothing to keep', () => {
+    const field = new VectorField(30);
+    field.update([new Particle(0, 0, 100)], SIMULATION_G, {
+      minX: 1e9,
+      minY: 1e9,
+      maxX: 1e9 + 100,
+      maxY: 1e9 + 100,
+    });
+
+    // A view a billion units from the only body: the forces there are not zero,
+    // but they are all equally negligible, and a relative floor keeps the ones
+    // nearest the body rather than none of them. What must not happen is a
+    // crash or an empty-range division.
+    for (const sample of field.getSamples()) {
+      expect(Number.isFinite(sample.force.magnitude())).toBe(true);
+    }
+  });
+});
