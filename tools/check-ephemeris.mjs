@@ -357,7 +357,7 @@ const verletRun = run({ integrator: 'verlet', span: comparisonSpan });
 // Sun and Mercury alone: a two-body problem, whose perihelion cannot move at
 // all. Whatever this reports is the integrator's own invention.
 const control = {};
-for (const integrator of ['verlet', 'rk4']) {
+for (const integrator of ['verlet', 'rk4', 'forest-ruth']) {
   control[integrator] = [];
   for (const step of [40, 20, 10, 5]) {
     const only = run({ integrator, step, only: ['Mercury'], span: CENTURY / 10 });
@@ -552,22 +552,30 @@ line('that is Newton, not an approximation — so anything the simulation report
 line('the integrator inventing it. This is the measurement that decided how the run');
 line('above was configured:');
 line('');
-line('| step (days) | velocity Verlet | RK4 |');
-line('|---:|---:|---:|');
+line('| step (days) | velocity Verlet | RK4 | Forest-Ruth |');
+line('|---:|---:|---:|---:|');
 for (let i = 0; i < control.verlet.length; i++) {
   const step = control.verlet[i].step;
   const days = (step * SCALE.secondsPerUnit) / DAY_IN_SECONDS;
   line(
     `| ${step} (${days.toFixed(3)}) | ${signed(control.verlet[i].rate, 1)}″ | ` +
-      `${signed(control.rk4[i].rate, 2)}″ |`
+      `${signed(control.rk4[i].rate, 2)}″ | ${signed(control['forest-ruth'][i].rate, 2)}″ |`
   );
 }
 line('');
 line('Verlet falls by exactly 4x per halving, which is what a second-order scheme');
 line('should do and is also why it is useless here: at the step this run uses, it');
-line('invents three times the effect being measured, pointing the other way.');
-line('RK4 is fourth-order and reports nothing at any of these steps. Running the');
-line('real system through Verlet instead of RK4 gives Mercury');
+line('invents three times the effect being measured, pointing the other way. The');
+line('two fourth-order schemes both fall by 16, and both are negligible against');
+line('the 545 arcseconds being measured — RK4 by a factor of fifty thousand,');
+line('Forest-Ruth by three thousand.');
+line('');
+line('The published run keeps RK4, because on this problem its error constant is');
+line('the smaller of the two and a four-minute measurement can afford the extra');
+line('force evaluation. Forest-Ruth is the better choice wherever the energy');
+line('behaviour matters as well — it is symplectic, which RK4 is not — and it');
+line('costs three evaluations rather than four. Running the');
+line('real system through Verlet instead gives Mercury');
 line(
   `**${signed(arcseconds(verletRun.byName.Mercury.periapsisRate), 1)}″** — the right physics with the` +
     ' wrong arithmetic on top of it.'

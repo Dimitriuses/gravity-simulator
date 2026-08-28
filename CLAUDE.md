@@ -40,7 +40,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
   │     ├── Particle    state, F=ma, the force law, trail
   │     └── VectorField field sampling (uniform | adaptive) + OccupancyGrid
   ├── presets        starting scenes, as data plus orbit arithmetic
-  ├── integrators    Euler / Verlet / RK4, and the adaptive sub-step rule
+  ├── integrators    Euler / Verlet / RK4 / Forest-Ruth, and the sub-step rule
   │     └── forces      the softened force law; accelerations at any positions
   ├── collisions     merge / bounce / shatter / pass through, at contact
   │     └── fragmentation  what a pair breaks into, and whether it should
@@ -58,7 +58,7 @@ main.ts          p5 sketch: input, UI wiring, the frame loop
 
 **Only `main.ts`, `Camera.ts` and `Renderer.ts` import p5.** `PhysicsEngine`,
 `Particle`, `VectorField`, `Vector2D`, `presets`, `integrators` and `forces` are
-plain TypeScript, which is why 304 tests run under Node in about twenty
+plain TypeScript, which is why 307 tests run under Node in about twenty-one
 seconds with no DOM and no canvas. `tools/compare-integrators.mjs` loads the same
 sources through Vite's SSR loader, so the published accuracy tables measure the
 code the browser runs. Keep it that
@@ -536,9 +536,17 @@ provably does not move, Verlet turns it -1,679″ per century at a step of a
 twentieth of a day — three times roadmap M8's entire result, backwards — while
 holding energy to a part in 10⁹.
 
-So: watch with Verlet, measure with RK4. Any measurement taken across many
-orbits needs all three of what `tools/check-ephemeris.mjs` does — RK4, two step
-sizes, and a control case whose answer is known independently. Do not read a
+Since M18 there is a scheme with neither failing: **Forest-Ruth**, three
+velocity Verlet steps of `w₁·dt`, `w₀·dt`, `w₁·dt` with a negative middle
+weight, fourth-order and symplectic for three force evaluations. It composes
+only because Verlet already keeps the contract above — accelerations current on
+entry and on exit — so the three steps need nothing between them. It is not the
+default because a frame is bound by cost, not by accuracy.
+
+So: watch with Verlet, measure with Forest-Ruth. Any measurement taken across
+many orbits needs all three of what `tools/check-ephemeris.mjs` does — a
+fourth-order scheme, two step sizes, and a control case whose answer is known
+independently. Do not read a
 long-run number out of this simulation without them, and do not take energy
 conservation as evidence that a run was accurate.
 

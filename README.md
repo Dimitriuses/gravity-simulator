@@ -141,7 +141,7 @@ starting data taken seriously, over a thousand years.
 | **Scene** dropdown | Load a starting scene; the camera reframes to fit it, and the Solar System sets its own pace as well |
 | **Reload** | Rebuild the current scene from scratch |
 | **Copy Link** | Put the scene as it stands into the address bar, and on the clipboard |
-| **Physics** section | Switch integration scheme, turn adaptive sub-stepping off, choose what happens on contact — merge, bounce, shatter or pass through — set how bouncy it is, or force the exact force solver |
+| **Physics** section | Switch integration scheme — Verlet, Euler, RK4 or Forest-Ruth — turn adaptive sub-stepping off, choose what happens on contact (merge, bounce, shatter or pass through), set how bouncy it is, or force the exact force solver |
 
 Mass, field range, body size and arrow size are sliders in the control panel;
 the *Field* dropdown switches between the six ways of drawing it. Bodies you add yourself inherit
@@ -263,7 +263,7 @@ before trusting a change.
 ```bash
 npm run lint        # eslint over src, tests and the tools
 npm run typecheck   # tsc over src, tests and the vite config
-npm test            # 304 unit tests, headless, ~20s
+npm test            # 307 unit tests, headless, ~21s
 npm run smoketest   # build first, then drive dist/ in headless Chromium
 npm run screenshots # the same run, regenerating screenshots/
 npm run compare     # integrator accuracy tables -> INTEGRATORS.md
@@ -295,7 +295,7 @@ measurement is run through RK4 rather than the default integrator.
 The smoke test covers what only exists once pixels are on a canvas: it serves
 the real build over HTTP, drives it with genuine mouse and wheel events, and
 **judges colour by sampling the canvas backing store rather than by eye**. It
-asserts 112 properties, including that the background is the intended navy, that
+asserts 114 properties, including that the background is the intended navy, that
 force and velocity arrows actually render, that a body created by dragging has
 the mass the slider shows, that a click on a control places *no* body, that the
 field still draws after panning far from the origin, that every scene in the
@@ -329,7 +329,9 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   fixed step resolves an orbit at radius 400 with 1,005 points and one at
   radius 50 with 44; adaptive sub-stepping now subdivides the tight ones, and
   the radius excursion at r = 50 falls from 14.2% (the original fixed-step
-  Euler) to 0.11%. There is a floor on how badly a *physical* orbit can be
+  Euler) to 0.11%. A fourth scheme, Forest-Ruth, is fourth-order *and*
+  symplectic — the one to pick before measuring anything, since Verlet turns an
+  orbit that should not turn and RK4 lets energy drift. There is a floor on how badly a *physical* orbit can be
   resolved — about 25 steps per orbit, since a body cannot orbit inside the
   primary's own radius. [`INTEGRATORS.md`](INTEGRATORS.md) has the numbers.
 - **Collisions are simple, and now go both ways.** Merging is perfectly
@@ -357,8 +359,9 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
   its energy error bounded, which is what makes an orbit drawn with it stay
   closed — and its second-order truncation error turns an orbit's perihelion
   anyway. Measured on Sun and Mercury alone, where the true answer is that
-  nothing turns at all, it invents -1,679″ per century at a step of a twentieth
-  of a day. Watch simulations with Verlet; measure them with RK4.
+  nothing turns at all, it invents -1,677″ per century at a step of a twentieth
+  of a day, against Forest-Ruth's +0.19″. Watch with Verlet, because a frame is
+  bound by cost; measure with Forest-Ruth.
 - **The tree is an approximation.** At the default opening angle its median
   force error is around 0.03–0.2%, and because it is not symmetric it gives up
   exact momentum conservation. The exact solver stays the default below 128
@@ -366,12 +369,10 @@ Measured, not guessed. [`KNOWNISSUES.md`](KNOWNISSUES.md) has the numbers.
 
 ## Roadmap
 
-Active. Seventeen milestones are closed, including one that was measured and
+Active. Eighteen milestones are closed, including one that was measured and
 declined rather than built, and [`ROADMAP.md`](ROADMAP.md) keeps all of them as
-a record of what was tried as well as what worked. Two are open, in priority
-order: an integration scheme that is symplectic *and* accurate in phase — so
-that "watch with one, measure with another" stops being necessary — and a group
-of small things. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
+a record of what was tried as well as what worked. One is open: a group of small
+things, none of them urgent. [`KNOWNISSUES.md`](KNOWNISSUES.md) indexes every known
 limitation as resolved, accepted or open, and says which milestone owns the open
 ones.
 

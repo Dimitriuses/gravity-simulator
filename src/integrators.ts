@@ -14,7 +14,7 @@ import { QuadTree } from './quadtree';
  * how much accuracy each of those steps buys.
  */
 
-export type IntegratorName = 'euler' | 'verlet' | 'rk4';
+export type IntegratorName = 'euler' | 'verlet' | 'rk4' | 'forest-ruth';
 
 /**
  * What an integrator is allowed to ask of the world around it.
@@ -97,6 +97,51 @@ export const velocityVerlet: Integrator = (particles, dt, field) => {
 };
 
 /**
+ * The weights that turn three leapfrog steps into a fourth-order one.
+ *
+ * `w0` is negative — the middle step runs *backwards* — and the three sum to
+ * one, so a composed step advances time by exactly `dt`. That is the whole
+ * trick: the second-order error terms of the three sub-steps cancel because one
+ * of them is taken in the opposite direction, and what is left is fourth order.
+ */
+const CBRT_TWO = Math.cbrt(2);
+const FOREST_RUTH_OUTER = 1 / (2 - CBRT_TWO);
+const FOREST_RUTH_MIDDLE = -CBRT_TWO / (2 - CBRT_TWO);
+
+/**
+ * Forest-Ruth: fourth order, symplectic, three force evaluations per step.
+ *
+ * The scheme this project needed and did not have. Velocity Verlet bounds its
+ * energy error and pays for it in the orbit's *orientation* — on the two-body
+ * problem, where the perihelion provably does not move, it turns it by
+ * thousands of arcseconds a century. RK4 gets the phase right and lets energy
+ * drift in one direction. So every measurement taken out of this simulation
+ * came with the instruction "watch with Verlet, measure with RK4", in four
+ * different files.
+ *
+ * This is both. It is a *composition* rather than a new derivation: three
+ * velocity Verlet steps of `w1·dt`, `w0·dt`, `w1·dt`, which is why the
+ * implementation is six lines and why it inherits the contract the rest of this
+ * file keeps. Each Verlet step assumes the accelerations are current when it
+ * starts and leaves them current when it finishes, so the three compose without
+ * anything in between, and the composed step costs one evaluation per
+ * sub-step — three against RK4's four, for the same order and a property RK4
+ * does not have.
+ *
+ * The cost is that the middle step goes backwards by 1.70 dt, so a body travels
+ * further within a step than the step advances it. Nothing here depends on
+ * monotone time — contacts are resolved between steps, not inside them — but it
+ * is the reason this is not simply the default: at a step coarse enough to make
+ * the backward excursion comparable to a close approach, Verlet's smaller
+ * excursion is better behaved.
+ */
+export const forestRuth: Integrator = (particles, dt, field) => {
+  velocityVerlet(particles, FOREST_RUTH_OUTER * dt, field);
+  velocityVerlet(particles, FOREST_RUTH_MIDDLE * dt, field);
+  velocityVerlet(particles, FOREST_RUTH_OUTER * dt, field);
+};
+
+/**
  * Classical fourth-order Runge-Kutta, on the state (x, v) with dx/dt = v and
  * dv/dt = a(x).
  *
@@ -150,6 +195,7 @@ export const INTEGRATORS: Record<IntegratorName, Integrator> = {
   euler: symplecticEuler,
   verlet: velocityVerlet,
   rk4: rungeKutta4,
+  'forest-ruth': forestRuth,
 };
 
 /** Labels for the UI, in the order they should appear. */
@@ -157,6 +203,7 @@ export const INTEGRATOR_LABELS: ReadonlyArray<{ id: IntegratorName; label: strin
   { id: 'verlet', label: 'Velocity Verlet (2nd order)' },
   { id: 'euler', label: 'Symplectic Euler (1st order)' },
   { id: 'rk4', label: 'Runge-Kutta 4 (not symplectic)' },
+  { id: 'forest-ruth', label: 'Forest-Ruth (4th, symplectic)' },
 ];
 
 /**

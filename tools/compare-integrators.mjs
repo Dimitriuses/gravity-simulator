@@ -27,6 +27,7 @@ const SCHEMES = [
   ['euler', 'Symplectic Euler'],
   ['verlet', 'Velocity Verlet'],
   ['rk4', 'Runge-Kutta 4'],
+  ['forest-ruth', 'Forest-Ruth'],
 ];
 
 // The satellite has mass, so the two-body problem's gravitational parameter is

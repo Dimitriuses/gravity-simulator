@@ -837,41 +837,56 @@ did not survive a scene in real units or a mode drawing a different quantity.
   mode. A lock set while a contour was on screen was never satisfied at all. It
   is cleared at the end of the frame now, where the question does not arise.
 
-## M18 — A scheme that is symplectic *and* accurate in phase
+## M18 — A scheme that is symplectic *and* accurate in phase — **done**
 
-*Medium*, and the reason it is worth doing is written in three files already.
+Velocity Verlet bounds its energy error and pays for it in the orbit's
+orientation; RK4 gets the orientation right and lets energy drift one way. So
+every measurement taken out of this simulation came with the instruction *watch
+with Verlet, measure with RK4*, in four different files. **Forest-Ruth** is
+both, and it is now the fourth entry in the Physics dropdown.
 
-Velocity Verlet bounds its energy error and turns the orbit instead: on the
-two-body problem, where the perihelion provably does not move, it invents
--1,679″ per century at a twentieth of a day. RK4 gets the phase right and lets
-energy drift in one direction, a part in 10⁹ per century here but unbounded in
-principle. So the advice this project gives is *watch with Verlet, measure with
-RK4*, and it appears in [`KNOWNISSUES.md`](KNOWNISSUES.md),
-[`INTEGRATORS.md`](INTEGRATORS.md), [`EPHEMERIS.md`](EPHEMERIS.md) and
-[`CLAUDE.md`](CLAUDE.md). A scheme that is both would make the advice
-unnecessary.
+It is a *composition*, not a derivation: three velocity Verlet steps of `w₁·dt`,
+`w₀·dt`, `w₁·dt`, with `w₁ = 1/(2 − ∛2)` and `w₀ = −∛2/(2 − ∛2)`. The middle
+step runs backwards — that is what cancels the second-order error — and the
+three weights sum to one, so a composed step still advances time by `dt`. The
+implementation is six lines, because this codebase's Verlet already assumes
+accelerations are current on entry and leaves them current on exit: the three
+compose with nothing in between, at one force evaluation each.
 
-Fourth-order symplectic integrators are a known family rather than a research
-problem — Forest–Ruth and Yoshida's compositions are three or four velocity
-Verlet steps with carefully chosen weights, which is a small amount of code on
-top of the scheme already here. The cost is force evaluations per step: three or
-four, against RK4's four and Verlet's one, so it would be an *option* beside the
-others rather than a new default.
+**What the measurements say.** Both tools this project already owned were the
+right ones to judge it, which is most of why the milestone was worth doing
+rather than reading about:
 
-**This project already owns both measurements that would judge one**, which is
-most of why it is worth doing rather than reading about:
+| | Verlet | RK4 | Forest-Ruth |
+|---|---:|---:|---:|
+| convergence when the step is halved | 4x | 16x | **16x** |
+| force evaluations per step | 1 | 4 | **3** |
+| invented precession, two-body, 0.046 d step | -1,677″/century | +0.01″ | **+0.19″** |
+| energy at r = 50 over 1,000 orbits | 0.0097% | 1.0444% and rising | **0.0000%** |
 
-- `npm run compare` measures convergence order by halving the step and watching
-  the error fall — a fourth-order scheme must show it falling by 16.
-- `npm run ephemeris` runs the two-body control that isolates a scheme's
-  invented precession, and it must report near zero where Verlet reports
-  thousands of arcseconds — while energy stays bounded over a long run, which is
-  the half RK4 fails.
+And at equal cost — 180,000 force evaluations on an eccentric two-body orbit,
+which is Forest-Ruth at the full step against Verlet at a third of it —
+Forest-Ruth invents **0.0033°** of precession against Verlet's 0.222°, with an
+energy error 250 times smaller. That comparison was worth making because the
+answer was not obvious in advance: three times the work per step could have paid
+for itself in a smaller step instead. It does not.
 
-**The trap to avoid** is the one M1 already fell into once: a composition with a
-wrong weight is still *a* scheme, and it will integrate, conserve momentum, and
-look plausible. Convergence order is the check that catches it, and it is the
-check to write first.
+**It is not the default**, and that is a cost argument rather than an accuracy
+one: an interactive frame is bound by what it can afford, a closed orbit is all
+the eye asks of it, and tripling the physics cost of every frame to fix an error
+nobody is looking at would be the wrong trade. The advice changes from "measure
+with RK4" to "measure with Forest-Ruth" — except in `npm run ephemeris`, whose
+own published run keeps RK4, because on that particular problem RK4's error
+constant is the smaller of the two and a four-minute measurement can afford the
+fourth evaluation.
+
+**The trap this milestone named in advance**, and which the test written first
+would have caught: a composition with a wrong weight is still *a* scheme. It
+integrates, it conserves momentum exactly, and it looks entirely plausible —
+it is simply second order wearing a fourth-order name. `tests/integrators.test.ts`
+checks the convergence ratio for every scheme in the registry, and the registry
+is a `Record<IntegratorName, …>`, so adding a scheme without adding its expected
+behaviour does not compile.
 
 ## M19 — Small things worth doing eventually
 

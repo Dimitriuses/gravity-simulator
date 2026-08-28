@@ -15,6 +15,7 @@ import { PhysicsEngine, SIMULATION_G } from '../src/PhysicsEngine';
 import { Particle } from '../src/Particle';
 import { Vector2D } from '../src/Vector2D';
 import { treeOf } from '../src/quadtree';
+import { osculatingElements, wrapDegrees } from '../src/ephemeris';
 
 /**
  * Two things need proving about an integrator, and they are different things:
@@ -87,6 +88,11 @@ describe('the update each scheme computes', () => {
       euler: { x: 2, v: 2 },
       verlet: { x: 1.5, v: 2 },
       rk4: { x: 1.5, v: 2 },
+      // A composition of exact maps is exact: velocity Verlet is exact in a
+      // constant field, and Forest-Ruth is three of them whose weights sum to
+      // one — including the negative middle one, which is the part that would
+      // show here if the weights were wrong.
+      'forest-ruth': { x: 1.5, v: 2 },
     };
 
     for (const name of NAMES) {
@@ -143,6 +149,11 @@ describe('order of accuracy', () => {
     ['euler' as const, 2, 1.6, 2.6],
     ['verlet' as const, 4, 3.4, 4.6],
     ['rk4' as const, 16, 12, 20],
+    // The check that catches a composition with a wrong weight. Such a scheme
+    // still integrates, still conserves momentum and still looks plausible; it
+    // is simply second order wearing a fourth-order name, and this is where
+    // that shows.
+    ['forest-ruth' as const, 16, 11, 22],
   ])('%s converges at ratio ~%i when the step is halved', (name, _nominal, low, high) => {
     const coarse = positionError(name, 1);
     const fine = positionError(name, 0.5);
@@ -155,9 +166,11 @@ describe('order of accuracy', () => {
     const euler = positionError('euler', 1);
     const verlet = positionError('verlet', 1);
     const rk4 = positionError('rk4', 1);
+    const forestRuth = positionError('forest-ruth', 1);
 
     expect(verlet).toBeLessThan(euler);
     expect(rk4).toBeLessThan(verlet);
+    expect(forestRuth).toBeLessThan(verlet);
   });
 });
 
@@ -171,6 +184,9 @@ describe('what a step costs', () => {
       ['euler', 1],
       ['verlet', 1],
       ['rk4', 4],
+      // Three velocity Verlet steps, one evaluation each — fourth order for
+      // one evaluation less than RK4 charges.
+      ['forest-ruth', 3],
     ] as const) {
       const engine = new PhysicsEngine(30);
       for (const particle of orbit(200)) engine.addParticle(particle);
@@ -489,5 +505,90 @@ describe('the step rule, taken apart', () => {
       pairTimescale(a, touching, SIMULATION_G),
       12
     );
+  });
+});
+
+describe('symplectic and accurate at once', () => {
+  /**
+   * Roadmap M18, and the reason it exists. A two-body orbit's perihelion does
+   * not move — not approximately, exactly — so any turning a scheme reports is
+   * its own. Velocity Verlet bounds its energy error and pays in that turning;
+   * RK4 gets the turning right and lets energy drift one way. Forest-Ruth is
+   * asked for both here.
+   */
+  const PRIMARY = 5000;
+  const APOAPSIS = 300;
+  const ECCENTRICITY = 0.2;
+  const mu = SIMULATION_G * (PRIMARY + 1);
+
+  function eccentricOrbit(name: IntegratorName) {
+    const engine = new PhysicsEngine(30);
+    engine.collisionMode = 'none';
+    engine.adaptiveStepping = false;
+    engine.integrator = name;
+
+    const semiMajor = APOAPSIS / (1 + ECCENTRICITY);
+    const speed = Math.sqrt(SIMULATION_G * PRIMARY * (2 / APOAPSIS - 1 / semiMajor));
+
+    engine.addParticle(new Particle(0, 0, PRIMARY));
+    engine.addParticle(new Particle(APOAPSIS, 0, 1, 0, speed));
+    return engine;
+  }
+
+  /** Perihelion turned, in degrees, and how the energy error behaved. */
+  function watch(name: IntegratorName, steps = 24000) {
+    const engine = eccentricOrbit(name);
+    const relative = () => ({
+      x: engine.particles[1].position.x - engine.particles[0].position.x,
+      y: engine.particles[1].position.y - engine.particles[0].position.y,
+      vx: engine.particles[1].velocity.x - engine.particles[0].velocity.x,
+      vy: engine.particles[1].velocity.y - engine.particles[0].velocity.y,
+    });
+
+    const start = osculatingElements(relative(), mu).periapsisDegrees;
+    const startEnergy = engine.diagnostics().energy;
+
+    let unwrapped = start;
+    let previous = start;
+    let worstEnergy = 0;
+
+    for (let step = 0; step < steps; step++) {
+      engine.integrate(1);
+      if (step % 50 !== 0) continue;
+
+      const now = osculatingElements(relative(), mu).periapsisDegrees;
+      unwrapped += wrapDegrees(now - previous);
+      previous = now;
+
+      const error = Math.abs((engine.diagnostics().energy - startEnergy) / startEnergy);
+      worstEnergy = Math.max(worstEnergy, error);
+    }
+
+    return {
+      precession: Math.abs(unwrapped - start),
+      worstEnergy,
+      finalEnergy: Math.abs((engine.diagnostics().energy - startEnergy) / startEnergy),
+    };
+  }
+
+  it('turns an orbit that should not turn far less than Verlet does', () => {
+    const verlet = watch('verlet');
+    const forestRuth = watch('forest-ruth');
+
+    expect(verlet.precession, 'Verlet should invent a visible precession').toBeGreaterThan(0.2);
+    expect(forestRuth.precession).toBeLessThan(0.02);
+    expect(forestRuth.precession).toBeLessThan(verlet.precession / 20);
+  });
+
+  it('and keeps its energy error bounded, which RK4 does not', () => {
+    // The signature of a symplectic scheme is not a small error but a
+    // *returning* one: the error oscillates and comes back, where a
+    // non-symplectic scheme's accumulates. So the test is the shape of the
+    // error over the run rather than its size at the end.
+    const forestRuth = watch('forest-ruth');
+    const rk4 = watch('rk4');
+
+    expect(forestRuth.finalEnergy).toBeLessThan(forestRuth.worstEnergy / 2);
+    expect(rk4.finalEnergy).toBeGreaterThan(rk4.worstEnergy / 2);
   });
 });

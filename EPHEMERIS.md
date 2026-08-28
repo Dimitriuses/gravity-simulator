@@ -209,12 +209,12 @@ that is Newton, not an approximation — so anything the simulation reports is
 the integrator inventing it. This is the measurement that decided how the run
 above was configured:
 
-| step (days) | velocity Verlet | RK4 |
-|---:|---:|---:|
-| 40 (0.184) | -26822.6″ | +1.58″ |
-| 20 (0.092) | -6707.3″ | +0.10″ |
-| 10 (0.046) | -1676.7″ | +0.01″ |
-| 5 (0.023) | -419.2″ | +0.00″ |
+| step (days) | velocity Verlet | RK4 | Forest-Ruth |
+|---:|---:|---:|---:|
+| 40 (0.184) | -26822.6″ | +1.58″ | +48.78″ |
+| 20 (0.092) | -6707.3″ | +0.10″ | +3.05″ |
+| 10 (0.046) | -1676.7″ | +0.01″ | +0.19″ |
+| 5 (0.023) | -419.2″ | +0.00″ | +0.01″ |
 
 Verlet falls by exactly 4x per halving, which is what a second-order scheme
 should do and is also why it is useless here: at the step this run uses, it
@@ -235,7 +235,7 @@ orbit it belongs to turns.
 | RK4, step 5 | 8.0e-14 | 3.7e-14 | +545.4″ |
 | Verlet, step 10 | 4.8e-9 | 1.3e-14 | -1136.1″ |
 
-The published run is 7,924,892 steps of 0.046 days and takes 223.6 s.
+The published run is 7,924,892 steps of 0.046 days and takes 292.1 s.
 Halving the step moves Mercury's rate by 0.01″, so the
 figure has stopped depending on it.
 

@@ -843,7 +843,7 @@ try {
   }));
   check(
     'the scheme dropdown is populated and defaults to velocity Verlet',
-    schemes.options.length === 3 && schemes.selected === 'verlet' && schemes.adaptive,
+    schemes.options.length === 4 && schemes.selected === 'verlet' && schemes.adaptive,
     `options=[${schemes.options.join(', ')}], selected=${schemes.selected}, adaptive=${schemes.adaptive}`
   );
 
@@ -894,6 +894,35 @@ try {
   await page.selectOption('#collisionSelect', 'merge');
   await page.locator('#massSlider').fill('200');
   await page.waitForTimeout(60);
+
+  // Forest-Ruth is a composition of three velocity Verlet steps, one of which
+  // runs backwards. Its arithmetic is covered in tests/integrators.test.ts; what
+  // only exists here is whether selecting it keeps the simulation running —
+  // a scheme whose middle step moves bodies the wrong way is exactly the kind
+  // that could look fine in Node and stall a frame loop.
+  await page.selectOption('#integratorSelect', 'forest-ruth');
+  await page.waitForTimeout(1200);
+
+  const composed = await page.evaluate(() => ({
+    scheme: document.getElementById('integratorSelect').value,
+    bodies: document.getElementById('objectCount').textContent,
+  }));
+  const movedUnderComposition = await (async () => {
+    const before = await onCanvas(countNear, { rgb: [150, 200, 255], tol: 40 });
+    await page.waitForTimeout(900);
+    const after = await onCanvas(countNear, { rgb: [150, 200, 255], tol: 40 });
+    return { before, after };
+  })();
+
+  check(
+    'the fourth-order symplectic scheme runs the scene',
+    composed.scheme === 'forest-ruth' && movedUnderComposition.before > 50,
+    `scheme=${composed.scheme}, ${composed.bodies} bodies, ` +
+      `${movedUnderComposition.before} then ${movedUnderComposition.after} body pixels`
+  );
+
+  await page.selectOption('#integratorSelect', 'verlet');
+  await page.waitForTimeout(400);
 
   // ── Scale ──────────────────────────────────────────────────────────────────
   // The quadtree's accuracy is proved in tests/quadtree.test.ts, against the

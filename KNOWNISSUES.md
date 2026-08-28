@@ -15,12 +15,12 @@ Every entry is one of three things, and the index says which:
 | | entry | status |
 |---|---|---|
 | 1 | Tight orbits are the least accurate | **Resolved** (M1); the floor at ~25 steps an orbit is **accepted** |
-| 2 | Which scheme bounds its error, and which does not | **Accepted** — and **open** in one respect: no scheme here is both symplectic and accurate in phase, which is **M18** |
+| 2 | Which scheme bounds its error, and which does not | **Accepted**, and **resolved** in the respect that mattered: Forest-Ruth (M18) is both |
 | 3 | Contacts are resolved, but crudely | **Resolved** (M2, M6, M12, M16); no tidal torque is **accepted**, in M10 |
 | 4 | Arrow length is relative | **Resolved** (M5, M13, M17) |
 | 5 | Saving happens on its own; restoring does not | **Resolved** (M4, M11); the length of a link for a large scene is **open**, M19 |
 | 6 | Performance ceiling | **Measured** (M3, M7, M15) — the field's sample budget is **accepted**, per-body stepping **declined with numbers** |
-| 7 | The default integrator turns orbits that should not turn | **Accepted** as a property, and the reason **M18** exists |
+| 7 | The default integrator turns orbits that should not turn | **Accepted** as a property of the *default*; M18 added a scheme that does not |
 | 8 | The solar system model is flat, and Newtonian | **Accepted** (M10); the windows that do not settle are **accepted** (M14) |
 | 9 | The debug overlay costs a full pairwise pass | **Open**, small — M19 |
 | 10 | The solar system scene is to scale in distance, not size or time | **Accepted** — and the field overlay draws it since M17 |
@@ -270,11 +270,13 @@ buried three times over. Anything measured out of this simulation across many
 orbits belongs in RK4, checked at two step sizes. See
 [`EPHEMERIS.md`](EPHEMERIS.md) and [`INTEGRATORS.md`](INTEGRATORS.md).
 
-What the three schemes here do *not* include is one that is symplectic **and**
-accurate in phase, which would make "watch with one, measure with another"
-unnecessary. That is roadmap **M18**: it is a known family of schemes rather
-than a research problem, and this project already owns both measurements that
-would judge one.
+Since roadmap M18 there is a fourth scheme that is symplectic **and** accurate
+in phase — Forest-Ruth, three velocity Verlet steps with signed weights — which
+invents +0.19″ per century on that same control where Verlet invents -1,677″,
+while holding energy to 0.0000% over a thousand orbits. It is not the default,
+because it costs three force evaluations a step against Verlet's one and an
+interactive frame is bound by cost; it is what to select before measuring
+anything. The advice is now *watch with Verlet, measure with Forest-Ruth*.
 
 ## The solar system model is flat, and Newtonian
 
